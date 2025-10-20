@@ -1,13 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import type { Task, TaskItem, TaskItemPart, VocabularyItem } from '../types';
 import { generateTasksFromText } from '../services/AIGenerator';
-import { extractTextUpToPage, extractTextFromFile } from '../services/fileProcessor'; // Обновленный импорт
+import { extractTextUpToPage, extractTextFromFile } from '../services/fileProcessor';
 import { UploadIcon, TrashIcon, CheckCircleIcon, PenIcon } from './Icons';
 
 interface TasksProps {
     tasks: Task[];
     onGenerateTasks: (tasks: Task[], vocabulary: VocabularyItem[]) => void;
-    onAnswerChange: (taskId: string, itemIndex: number, answer: string) => void;
+    onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
     onCompleteTask: (taskId: string) => void;
     onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
     onNavigateToPage: (page: number) => void;
@@ -32,7 +32,6 @@ const TaskGenerator: React.FC<{
     };
     
     const getPageNumberFromInstruction = (text: string): number | null => {
-        // Ищем последнее упоминание страницы, чтобы определить границу
         const matches = text.match(/стр(?:аница|\.)?\s*(\d+)/gi);
         if (!matches) return null;
         const lastMatch = matches[matches.length - 1];
@@ -57,7 +56,6 @@ const TaskGenerator: React.FC<{
 
             if (pdfFile) {
                 if (lastPageMentioned) {
-                    // **НОВАЯ ЛОГИКА: Читаем до указанной страницы + 1**
                     const readUpToPage = lastPageMentioned + 1;
                     console.log(`📚 Reading PDF up to page ${readUpToPage}...`);
                     contextText = await extractTextUpToPage(pdfFile, readUpToPage);
@@ -74,7 +72,6 @@ const TaskGenerator: React.FC<{
                 }
             }
             
-            // Обработка других файлов
             for (const file of files.filter(f => f.type !== 'application/pdf')) {
                 contextText += await extractTextFromFile(file) + '\n';
             }
@@ -163,10 +160,10 @@ const TaskGenerator: React.FC<{
         </div>
     );
 };
-// Компонент TaskCard остается без изменений
+
 const TaskCard: React.FC<{ 
     task: Task; 
-    onAnswerChange: (taskId: string, itemIndex: number, answer: string) => void; 
+    onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void; 
     onCompleteTask: (taskId: string) => void;
     onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
     onNavigateToPage: (page: number) => void;
@@ -188,46 +185,94 @@ const TaskCard: React.FC<{
     };
 
     const renderTaskItem = (item: TaskItem, index: number) => {
-        const currentItemId = `${task.id}-${index}`;
-        const isEditing = editingItemId === currentItemId;
+    const currentItemId = `${task.id}-${index}`;
+    const isEditing = editingItemId === currentItemId;
 
-        if (isEditing) {
-            return (
-                 <input
-                    type="text"
-                    defaultValue={item.textParts.map(p => p.isAnswer ? '[ответ]' : p.text).join('')}
-                    onBlur={(e) => {
-                        handleTextSave(index, e.target.value);
-                        setEditingItemId(null);
-                    }}
-                    onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                    autoFocus
-                    className="flex-grow bg-gray-100 dark:bg-gray-900 border-b-2 border-blue-500 outline-none px-2 py-1"
-                />
-            )
-        }
-
+    // Устные задания - только текст и кнопка
+    if (task.type === 'oral') {
         return (
-            <div className="flex-grow flex flex-wrap items-baseline">
-                {item.textParts.map((part, partIndex) =>
-                    part.isAnswer ? (
-                        <input
-                            key={partIndex}
-                            type="text"
-                            value={item.userAnswer || ''}
-                            onChange={(e) => onAnswerChange(task.id, index, e.target.value)}
-                            disabled={isCompleted}
-                            placeholder="..."
-                            className="inline-block w-32 mx-2 bg-gray-100 dark:bg-gray-700 border-b-2 border-gray-300 dark:border-gray-500 focus:border-blue-500 outline-none px-2 py-1 disabled:opacity-50"
-                        />
-                    ) : (
-                        <span key={partIndex}>{part.text}</span>
-                    )
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
+                <p className="text-gray-800 dark:text-gray-200">{item.textParts.map(p => p.text).join('')}</p>
+                {task.pageNumber && (
+                    <button 
+                        onClick={() => onNavigateToPage(parseInt(task.pageNumber || '1', 10))}
+                        className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors text-sm flex-shrink-0"
+                    >
+                        К учебнику
+                    </button>
                 )}
             </div>
         );
-    };
+    }
 
+    // Редактирование текста задания
+    if (isEditing) {
+        return (
+             <input
+                type="text"
+                defaultValue={item.textParts.map(p => p.isAnswer ? '[ответ]' : p.text).join('')}
+                onBlur={(e) => {
+                    handleTextSave(index, e.target.value);
+                    setEditingItemId(null);
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                autoFocus
+                className="flex-grow bg-gray-100 dark:bg-gray-900 border-b-2 border-blue-500 outline-none px-2 py-1"
+            />
+        )
+    }
+
+    // Задание с переводом - показываем ТОЛЬКО первый textPart (русский текст)
+    if (item.type === 'translate') {
+        const russianText = item.textParts[0]?.text || '';
+        return (
+            <div className="space-y-2">
+                <p className="text-gray-800 dark:text-gray-200 font-medium">
+                    {russianText}
+                </p>
+                <textarea
+                    value={item.userAnswer || ''}
+                    onChange={(e) => onAnswerChange(task.id, index, e.target.value)}
+                    disabled={isCompleted}
+                    placeholder="Ваш перевод на испанском..."
+                    className="w-full bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                    rows={3}
+                />
+            </div>
+        );
+    }
+
+    // Задание с пропусками - отдельное поле для каждого пропуска
+    if (item.type === 'fill-in-the-blank') {
+        let answerIndex = 0;
+        return (
+            <div className="flex-grow flex flex-wrap items-baseline">
+                {item.textParts.map((part, partIndex) => {
+                    if (part.isAnswer) {
+                        const currentAnswerIndex = answerIndex++;
+                        return (
+                            <input
+                                key={partIndex}
+                                type="text"
+                                value={item.userAnswers?.[currentAnswerIndex] || ''}
+                                onChange={(e) => onAnswerChange(task.id, index, e.target.value, currentAnswerIndex)}
+                                disabled={isCompleted}
+                                placeholder="..."
+                                className="inline-block w-32 mx-2 bg-gray-100 dark:bg-gray-700 border-b-2 border-gray-300 dark:border-gray-500 focus:border-blue-500 outline-none px-2 py-1 disabled:opacity-50"
+                            />
+                        );
+                    }
+                    return <span key={partIndex}>{part.text}</span>;
+                })}
+            </div>
+        );
+    }
+
+    // Plain text (для информационных заданий, не устных)
+    return (
+        <p className="text-gray-800 dark:text-gray-200">{item.textParts.map(p => p.text).join('')}</p>
+    );
+};
     return (
         <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg border ${isCompleted ? 'border-green-500' : 'border-gray-200 dark:border-gray-700'} shadow-md`}>
             <div className="flex justify-between items-start mb-3">
@@ -244,28 +289,18 @@ const TaskCard: React.FC<{
                     const currentItemId = `${task.id}-${index}`;
                     const isEditing = editingItemId === currentItemId;
                     
+                    // Для устных заданий - специальный рендер
                     if (task.type === 'oral') {
-                        return (
-                           <div key={index} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                <p className="text-gray-800 dark:text-gray-200">{item.textParts.map(p => p.text).join('')}</p>
-                                {task.pageNumber && (
-                                    <button 
-                                        onClick={() => onNavigateToPage(parseInt(task.pageNumber || '1', 10))}
-                                        className="bg-blue-500 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors text-sm flex-shrink-0"
-                                    >
-                                        К учебнику
-                                    </button>
-                                )}
-                           </div>
-                        );
+                        return <div key={index}>{renderTaskItem(item, index)}</div>;
                     }
                     
+                    // Для письменных заданий
                     return (
                          <div key={currentItemId} className="pl-3 border-l-2 border-gray-200 dark:border-gray-600">
                              <div className="flex items-center group text-base">
                                 <span className="mr-2 text-gray-500 font-medium">{index + 1}.</span>
                                 {renderTaskItem(item, index)}
-                                {!isCompleted && (
+                                {!isCompleted && item.type !== 'translate' && (
                                      <button 
                                         onClick={() => setEditingItemId(isEditing ? null : currentItemId)} 
                                         className="ml-2 p-1 rounded-full text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -275,45 +310,38 @@ const TaskCard: React.FC<{
                                     </button>
                                 )}
                              </div>
-                              {item.type === 'translate' && !isEditing && (
-                                <textarea
-                                    value={item.userAnswer || ''}
-                                    onChange={(e) => onAnswerChange(task.id, index, e.target.value)}
-                                    disabled={isCompleted}
-                                    placeholder="Ваш перевод..."
-                                    className="w-full mt-2 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                                    rows={2}
-                                />
-                            )}
                          </div>
                     );
                 })}
             </div>
             
-            <div className="mt-4 text-right">
-                <button
-                    onClick={() => onCompleteTask(task.id)}
-                    disabled={isCompleted}
-                    className="bg-green-500 text-white font-semibold py-2 px-4 rounded-md text-sm hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2 ml-auto"
-                >
-                    {isCompleted ? (
-                        <>
-                            <CheckCircleIcon className="w-5 h-5"/>
-                            Завершено
-                        </>
-                    ) : (
-                        'Завершить задание'
-                    )}
-                </button>
-            </div>
+            {task.type !== 'oral' && (
+                <div className="mt-4 text-right">
+                    <button
+                        onClick={() => onCompleteTask(task.id)}
+                        disabled={isCompleted}
+                        className="bg-green-500 text-white font-semibold py-2 px-4 rounded-md text-sm hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2 ml-auto"
+                    >
+                        {isCompleted ? (
+                            <>
+                                <CheckCircleIcon className="w-5 h-5"/>
+                                Завершено
+                            </>
+                        ) : (
+                            'Завершить задание'
+                        )}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };
 
-
 const Tasks: React.FC<TasksProps> = ({ tasks, onGenerateTasks, onAnswerChange, onCompleteTask, onTaskItemTextChange, onNavigateToPage }) => {
     const [isGeneratorVisible, setIsGeneratorVisible] = useState(true);
-    const completedCount = tasks.filter(t => t.status === 'completed').length;
+    const writtenTasks = tasks.filter(t => t.type === 'written');
+    const completedCount = writtenTasks.filter(t => t.status === 'completed').length;
+    
     const handleTasksGenerated = () => {
         setIsGeneratorVisible(false);
     };
@@ -336,15 +364,15 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onGenerateTasks, onAnswerChange, o
                 )}
             </div>
              <div className="flex-grow overflow-y-auto space-y-4 pr-2 -mr-2">
-                {tasks.length > 0 && (
+                {tasks.length > 0 && writtenTasks.length > 0 && (
                     <div className="sticky top-0 bg-gray-100 dark:bg-gray-900 py-2 z-10 mb-2">
                          <div className="text-right text-sm font-medium text-gray-600 dark:text-gray-400 mb-2 pr-2">
-                            Выполнено: {completedCount} из {tasks.length}
+                            Выполнено письменных: {completedCount} из {writtenTasks.length}
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
                             <div 
                                 className="bg-green-600 h-2.5 rounded-full transition-all duration-300" 
-                                style={{ width: `${tasks.length > 0 ? (completedCount / tasks.length) * 100 : 0}%` }}
+                                style={{ width: `${writtenTasks.length > 0 ? (completedCount / writtenTasks.length) * 100 : 0}%` }}
                             ></div>
                         </div>
                     </div>

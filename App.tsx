@@ -10,7 +10,7 @@ import { generatePdfReport } from './src/services/pdfReportGenerator';
 declare const window: any;
 
 type SidebarTab = 'video' | 'chat';
-type WorkspaceTab = 'tasks' | 'textbook' | 'whiteboard' | 'dictionary';
+type WorkspaceTab = 'tasks' | 'textbook' | 'dictionary';
 
 interface NotificationState {
   message: string;
@@ -42,14 +42,48 @@ const App: React.FC = () => {
   const [color, setColor] = useState('#FF0000');
   const [annotations, setAnnotations] = useState<{ [key: number]: Annotation[] }>({});
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
+  const [pdfLibraryLoaded, setPdfLibraryLoaded] = useState(false);
 
-  const allTasksCompleted = tasks.length > 0 && tasks.every(t => t.status === 'completed');
+  const writtenTasks = tasks.filter(t => t.type === 'written');
+  const allTasksCompleted = writtenTasks.length > 0 && writtenTasks.every(t => t.status === 'completed');
 
   useEffect(() => {
     console.log('🚀 App component mounted');
+    
+    // Проверяем загрузку PDF.js
     if (window.pdfjsLib) {
       window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
+      console.log('✅ PDF.js loaded');
     }
+    
+    // Проверяем загрузку jsPDF
+    const checkPdfLibrary = () => {
+      console.log('🔍 Checking jsPDF availability...');
+      console.log('window.jspdf:', window.jspdf);
+      console.log('window.jsPDF:', window.jsPDF);
+      
+      if (window.jspdf || window.jsPDF) {
+        console.log('✅ jsPDF library loaded successfully');
+        setPdfLibraryLoaded(true);
+        
+        // Проверяем autoTable
+        if (window.jspdf) {
+          const { jsPDF } = window.jspdf;
+          const testDoc = new jsPDF();
+          if (typeof testDoc.autoTable === 'function') {
+            console.log('✅ autoTable plugin loaded successfully');
+          } else {
+            console.error('❌ autoTable plugin NOT loaded');
+          }
+        }
+      } else {
+        console.error('❌ jsPDF library NOT loaded');
+        // Пробуем еще раз через 500ms
+        setTimeout(checkPdfLibrary, 500);
+      }
+    };
+    
+    checkPdfLibrary();
   }, []);
 
   const showNotification = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info') => {
@@ -77,8 +111,34 @@ const App: React.FC = () => {
     console.log('📋 New tasks received:', newTasks);
     console.log('📚 New vocabulary received:', newVocabulary);
     
+    const processedTasks = newTasks.map(task => ({
+      ...task,
+      items: task.items.map(item => {
+        if (item.type === 'fill-in-the-blank') {
+          const answerCount = item.textParts.filter(p => p.isAnswer).length;
+          return {
+            ...item,
+            userAnswer: undefined,
+            userAnswers: new Array(answerCount).fill('')
+          };
+        }
+        if (item.type === 'translate') {
+          return {
+            ...item,
+            userAnswer: '',
+            userAnswers: undefined
+          };
+        }
+        return {
+          ...item,
+          userAnswer: undefined,
+          userAnswers: undefined
+        };
+      })
+    }));
+    
     setTasks(prev => {
-      const updated = [...prev, ...newTasks];
+      const updated = [...prev, ...processedTasks];
       console.log('📋 Updated tasks state:', updated);
       return updated;
     });
@@ -107,11 +167,28 @@ const App: React.FC = () => {
     }
   };
   
-  const handleAnswerChange = (taskId: string, itemIndex: number, answer: string) => {
+  const handleAnswerChange = (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => {
     setTasks(prevTasks =>
       prevTasks.map(task => 
         task.id === taskId 
-          ? { ...task, items: task.items.map((item, i) => i === itemIndex ? { ...item, userAnswer: answer } : item) } 
+          ? { 
+              ...task, 
+              items: task.items.map((item, i) => {
+                if (i !== itemIndex) return item;
+                
+                if (item.type === 'fill-in-the-blank' && answerIndex !== undefined) {
+                  const newAnswers = [...(item.userAnswers || [])];
+                  newAnswers[answerIndex] = answer;
+                  return { ...item, userAnswers: newAnswers };
+                }
+                
+                if (item.type === 'translate') {
+                  return { ...item, userAnswer: answer };
+                }
+                
+                return item;
+              })
+            } 
           : task
       )
     );
@@ -158,26 +235,38 @@ const App: React.FC = () => {
   };
 
   const handleGenerateFinalReport = () => {
-    if (!allTasksCompleted) return;
+    console.log('🎯 ========== GENERATE REPORT BUTTON CLICKED ==========');
+    console.log('📊 All tasks completed?', allTasksCompleted);
+    console.log('📝 Written tasks count:', writtenTasks.length);
+    console.log('📝 Written tasks:', writtenTasks);
+    console.log('📚 PDF Library loaded?', pdfLibraryLoaded);
+    
+    if (!allTasksCompleted) {
+      console.warn('⚠️ Not all tasks completed');
+      showNotification('Сначала завершите все письменные задания!', 'warning');
+      return;
+    }
 
-    const checkAndGenerate = (tries = 0) => {
-        if (typeof window.jspdf !== 'undefined') {
-            try {
-                generatePdfReport(tasks);
-                showNotification('PDF отчет успешно сгенерирован!', 'success');
-            } catch (error) {
-                console.error('Error generating PDF:', error);
-                showNotification('Ошибка при генерации PDF', 'error');
-            }
-        } else if (tries < 10) {
-            setTimeout(() => checkAndGenerate(tries + 1), 100);
-        } else {
-            console.error("jsPDF not loaded after 1 second.");
-            showNotification('Ошибка: библиотека PDF не загружена', 'error');
-        }
-    };
+    if (!pdfLibraryLoaded) {
+      console.warn('⚠️ PDF library not loaded yet');
+      showNotification('PDF библиотека еще загружается. Попробуйте через секунду.', 'warning');
+      return;
+    }
 
-    checkAndGenerate();
+    try {
+      console.log('✅ Starting PDF generation with', writtenTasks.length, 'tasks');
+      generatePdfReport(writtenTasks);
+      console.log('✅ PDF generation completed successfully');
+      showNotification('PDF отчет успешно создан и скачан!', 'success');
+    } catch (error) {
+      console.error('❌ Error in handleGenerateFinalReport:', error);
+      console.error('Error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : 'No stack'
+      });
+      showNotification(`Ошибка при генерации PDF: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`, 'error');
+    }
   };
 
   const handleAddTextbook = (file: File) => {
@@ -198,14 +287,10 @@ const App: React.FC = () => {
     setCurrentPage(page);
   };
 
-  console.log('🔄 App render - tasks count:', tasks.length);
-  console.log('🔄 App render - vocabulary count:', vocabulary.length);
-
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <Header onGenerateReport={handleGenerateFinalReport} isReportReady={allTasksCompleted} />
       
-      {/* Notifications */}
       <div className="fixed top-0 right-0 z-50 p-4 space-y-2">
         {notifications.map((notification) => (
           <Notification

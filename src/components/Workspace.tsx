@@ -10,7 +10,7 @@ interface WorkspaceProps {
     tasks: Task[];
     vocabulary: VocabularyItem[];
     onGenerateTasks: (tasks: Task[], vocabulary: VocabularyItem[]) => void;
-    onAnswerChange: (taskId: string, itemIndex: number, answer: string) => void;
+    onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
     onCompleteTask: (taskId: string) => void;
     onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
     onNavigateToPage: (page: number) => void;

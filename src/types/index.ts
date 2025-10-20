@@ -26,8 +26,8 @@ export interface TaskItemPart {
 export interface TaskItem {
   type: 'fill-in-the-blank' | 'translate' | 'plain-text';
   textParts: TaskItemPart[];
-  // ИСПРАВЛЕНИЕ: Заменяем userAnswer на массив userAnswers
-  userAnswers?: string[]; 
+  userAnswer?: string; // Для translate
+  userAnswers?: string[]; // Для fill-in-the-blank (массив ответов для каждого пропуска)
 }
 
 export interface Task {
@@ -39,7 +39,6 @@ export interface Task {
   pageNumber?: string;
   exerciseNumber?: string;
 }
-
 
 export type Tool = 'pen' | 'highlighter' | 'eraser';
 
