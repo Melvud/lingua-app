@@ -1,0 +1,5 @@
+{
+  "name": "Co-Study Hub",
+  "description": "A collaborative study session simulator for two users working on Spanish homework. It features individual task completion, a shared chat and whiteboard, and generates academic progress reports in PDF format.",
+  "requestFramePermissions": []
+}
