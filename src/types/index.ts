@@ -11,21 +11,19 @@ export interface Message {
   user: User;
 }
 
-// Fix: Add VocabularyItem type for the Dictionary component.
 export interface VocabularyItem {
     word: string;
     translation: string;
+    context: string;
 }
 
-// For structured, interactive tasks
 export interface TaskItemPart {
   text: string;
   isAnswer: boolean;
 }
 
 export interface TaskItem {
-  // Fix: Add 'oral' to the list of possible task item types to match its use in Tasks.tsx.
-  type: 'fill-in-the-blank' | 'translate' | 'plain-text' | 'oral';
+  type: 'fill-in-the-blank' | 'translate' | 'plain-text';
   textParts: TaskItemPart[];
   userAnswer?: string;
 }
@@ -36,10 +34,11 @@ export interface Task {
   type: 'written' | 'oral';
   items: TaskItem[];
   status: 'incomplete' | 'completed';
+  pageNumber?: string;
+  exerciseNumber?: string;
 }
 
 
-// For PDF Viewer and Editor
 export type Tool = 'pen' | 'highlighter' | 'eraser';
 
 export interface AnnotationPoint {
@@ -55,5 +54,5 @@ export interface Annotation {
 
 export interface TextbookFile {
     file: File;
-    url: string; // Object URL for rendering
+    url: string; 
 }

@@ -1,8 +1,26 @@
-// All external libraries (mammoth, pdfjs) are loaded from CDN and available on the window object.
 declare const window: any;
 
 /**
- * Extracts text from various file types.
+ * Extracts text from a specific page of a PDF file.
+ */
+export const extractTextFromPdfPage = async (file: File, pageNumber: number): Promise<string> => {
+    if (file.type !== 'application/pdf') {
+        throw new Error('Файл не является PDF.');
+    }
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
+
+    if (pageNumber > pdf.numPages || pageNumber < 1) {
+        throw new Error(`Неверный номер страницы. В документе всего ${pdf.numPages} страниц.`);
+    }
+
+    const page = await pdf.getPage(pageNumber);
+    const content = await page.getTextContent();
+    return content.items.map((item: any) => 'str' in item ? item.str : '').join(' ');
+};
+
+/**
+ * Extracts text from various file types (excluding PDF page-specific logic).
  */
 export const extractTextFromFile = async (file: File): Promise<string> => {
     if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') { // .docx
@@ -10,22 +28,12 @@ export const extractTextFromFile = async (file: File): Promise<string> => {
         const result = await window.mammoth.extractRawText({ arrayBuffer });
         return result.value;
     }
-    if (file.type === 'application/msword') { // .doc
-        return Promise.resolve(`К сожалению, устаревший формат .doc не может быть обработан автоматически. Пожалуйста, пересохраните файл в формате .docx или скопируйте текст вручную.`);
-    }
-    if (file.type === 'application/pdf') {
-        const arrayBuffer = await file.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
-        let text = '';
-        for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            text += content.items.map((item: any) => 'str' in item ? item.str : '').join(' ') + '\n';
-        }
-        return text;
-    }
     if (file.type.startsWith('text/')) {
         return file.text();
+    }
+    // PDF processing is now handled by extractTextFromPdfPage
+    if (file.type === 'application/pdf') {
+        return "Для работы с PDF укажите номер страницы в запросе.";
     }
     throw new Error('Неподдерживаемый тип файла.');
 };
@@ -38,7 +46,6 @@ export const convertImageToBase64 = (file: File): Promise<string> => {
              if (typeof reader.result !== 'string') {
                 return reject(new Error('Could not read file as data URL.'));
             }
-            // remove "data:image/jpeg;base64," prefix
             resolve(reader.result.substring(reader.result.indexOf(',') + 1));
         };
         reader.onerror = error => reject(error);

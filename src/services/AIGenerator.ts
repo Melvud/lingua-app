@@ -1,10 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import type { Task } from '../types';
+import type { Task, VocabularyItem } from '../types';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
 const model = 'gemini-2.5-flash';
 
-const taskGenerationSchema = {
+const responseSchema = {
     type: Type.OBJECT,
     properties: {
         tasks: {
@@ -13,24 +13,19 @@ const taskGenerationSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    instruction: { type: Type.STRING, description: "Исходная инструкция для всего упражнения (например, 'Вставьте правильный глагол')." },
-                    type: { type: Type.STRING, enum: ['written', 'oral'], description: "Тип задания: 'written' для письменных, 'oral' для устных." },
+                    instruction: { type: Type.STRING }, type: { type: Type.STRING, enum: ['written', 'oral'] },
+                    pageNumber: { type: Type.STRING }, exerciseNumber: { type: Type.STRING },
                     items: {
                         type: Type.ARRAY,
-                        description: "Список под-заданий внутри одного упражнения.",
                         items: {
                             type: Type.OBJECT,
                             properties: {
-                                type: { type: Type.STRING, enum: ['fill-in-the-blank', 'translate', 'plain-text'], description: "Тип под-задания." },
+                                type: { type: Type.STRING, enum: ['fill-in-the-blank', 'translate', 'plain-text'] },
                                 textParts: {
                                     type: Type.ARRAY,
-                                    description: "Массив частей текста. Для 'fill-in-the-blank' чередуются текст и место для ответа.",
                                     items: {
                                         type: Type.OBJECT,
-                                        properties: {
-                                            text: { type: Type.STRING, description: "Часть текста." },
-                                            isAnswer: { type: Type.BOOLEAN, description: "True, если эта часть является местом для ввода ответа." }
-                                        },
+                                        properties: { text: { type: Type.STRING }, isAnswer: { type: Type.BOOLEAN } },
                                         required: ['text', 'isAnswer']
                                     }
                                 }
@@ -41,64 +36,73 @@ const taskGenerationSchema = {
                 },
                 required: ['instruction', 'type', 'items']
             }
+        },
+        vocabulary: {
+            type: Type.ARRAY,
+            description: "Список слов для словаря, если был такой запрос.",
+            items: {
+                type: Type.OBJECT,
+                properties: {
+                    word: { type: Type.STRING, description: "Слово или фраза на испанском." },
+                    translation: { type: Type.STRING, description: "Перевод на русский." },
+                    context: { type: Type.STRING, description: "Пример использования в предложении из текста." }
+                },
+                required: ['word', 'translation', 'context']
+            }
         }
-    },
-    required: ['tasks']
+    }
 };
+
+interface AIResponse {
+    tasks: Task[];
+    vocabulary: VocabularyItem[];
+}
 
 export const generateTasksFromText = async (
     userPrompt: string,
     contextText: string,
     imageBase64?: string
-): Promise<{ tasks: Task[] }> => {
+): Promise<AIResponse> => {
     
     const contents: any[] = [{ text: `
-        Проанализируй запрос пользователя и контекст ниже. Твоя задача — создать учебные задания по испанскому языку в формате JSON.
-        
+        ТЫ — ИИ-АССИСТЕНТ ПРЕПОДАВАТЕЛЯ. Твоя задача — точно и аккуратно создавать учебные материалы.
+
         ЗАПРОС ПОЛЬЗОВАТЕЛЯ: "${userPrompt}"
-        
-        КОНТЕКСТ (текст из учебника или файла): 
+        КОНТЕКСТ (текст с конкретной страницы учебника): 
         ---
         ${contextText}
         ---
 
         ПРАВИЛА:
-        1.  **Точность:** Создавай задания СТРОГО на основе запроса пользователя. Если в запросе указано "стр 27 упр 5", найди именно это упражнение в контексте и работай только с ним. Не придумывай задания из других частей текста.
-        2.  **Структура:** Каждое упражнение должно быть отдельным объектом в массиве 'tasks'.
-        3.  **Интерактивность:** Разбей каждое упражнение на под-пункты ('items'). Для заданий типа "вставьте пропущенное слово" ('fill-in-the-blank'), используй массив 'textParts', где чередуется текст и место для ответа (isAnswer: true). Для заданий на перевод используй тип 'translate'.
-        4.  **Тип задания:** Определи, является ли задание устным ('oral', например, "прочитайте", "прослушайте") или письменным ('written').
-        5.  **Не добавляй ответы.** Поля для ответов должны быть пустыми.
+        1.  **ТОЧНОСТЬ:** Воспроизводи текст из КОНТЕКСТА **буква в букву**. Особое внимание на испанские символы (á, é, í, ó, ú, ü, ñ, ¿, ¡).
+        2.  **АНАЛИЗ ЗАПРОСА:**
+            -   Если запрос содержит "учить слова" (например, "учим слова стр 27 упр 5"), твоя главная задача — извлечь из указанного упражнения слова и их перевод. Заполни массив 'vocabulary'. В 'context' добавь предложение, где это слово используется. Задания 'tasks' в этом случае можно не создавать.
+            -   Для всех остальных запросов создавай задания в массиве 'tasks', как и раньше.
+        3.  **ИЗВЛЕЧЕНИЕ МЕТАДАННЫХ:** Извлеки 'pageNumber' и 'exerciseNumber' из запроса.
+        4.  **БЕЗ НУМЕРАЦИИ:** НЕ добавляй нумерацию ("1.", "2.") в поле 'text'.
     ` }];
 
     if (imageBase64) {
-        contents.push({
-            inlineData: {
-                mimeType: 'image/jpeg',
-                data: imageBase64,
-            },
-        });
+        contents.push({ inlineData: { mimeType: 'image/jpeg', data: imageBase64 } });
     }
 
     try {
         const response = await ai.models.generateContent({
             model,
             contents: { parts: contents },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: taskGenerationSchema,
-            },
+            config: { responseMimeType: "application/json", responseSchema }
         });
 
-        const jsonResponse = JSON.parse(response.text);
+        const jsonResponse: AIResponse = JSON.parse(response.text);
 
-        const tasks: Task[] = (jsonResponse.tasks || []).map((task: any, index: number) => ({
+        const tasks: Task[] = (jsonResponse.tasks || []).map((task, index) => ({
             ...task,
             id: `task-${Date.now()}-${index}`,
             status: 'incomplete',
-            items: task.items.map((item: any) => ({ ...item, userAnswer: '' })) // Initialize userAnswer
+            items: task.items.map(item => ({ ...item, userAnswer: '' }))
         }));
 
-        return { tasks };
+        return { tasks, vocabulary: jsonResponse.vocabulary || [] };
 
     } catch (error) {
         console.error('Error generating tasks:', error);

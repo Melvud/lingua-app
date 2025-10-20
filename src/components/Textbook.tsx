@@ -1,8 +1,7 @@
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { UploadIcon, PenIcon, EraserIcon, HighlighterIcon, ZoomInIcon, ZoomOutIcon } from './Icons';
-import type { Annotation, AnnotationPoint, Tool, TextbookFile } from '../types';
+import type { Annotation, Tool, TextbookFile } from '../types';
 
-// pdfjsLib will be available on the window object from the CDN script
 declare const window: any;
 
 interface TextbookProps {
@@ -13,7 +12,6 @@ interface TextbookProps {
     numPages: number;
     setNumPages: (count: number) => void;
     currentPage: number;
-    // Fix: Update type to allow functional updates for state, resolving errors on lines 192 and 194.
     setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
     zoom: number;
     setZoom: React.Dispatch<React.SetStateAction<number>>;
@@ -38,19 +36,14 @@ const Textbook: React.FC<TextbookProps> = ({
 
     const getContext = (canvas: HTMLCanvasElement | null) => canvas?.getContext('2d');
     
-    // Load annotations from localStorage
     useEffect(() => {
         if (selectedTextbook) {
             const saved = localStorage.getItem(`annotations_${selectedTextbook.file.name}`);
-            if (saved) {
-                setAnnotations(JSON.parse(saved));
-            } else {
-                setAnnotations({});
-            }
+            if (saved) setAnnotations(JSON.parse(saved));
+            else setAnnotations({});
         }
     }, [selectedTextbook, setAnnotations]);
 
-    // Save annotations to localStorage
     useEffect(() => {
         if (selectedTextbook) {
             localStorage.setItem(`annotations_${selectedTextbook.file.name}`, JSON.stringify(annotations));
@@ -71,19 +64,12 @@ const Textbook: React.FC<TextbookProps> = ({
             ctx.lineWidth = ann.tool === 'highlighter' ? 10 : 3;
             ctx.globalAlpha = ann.tool === 'highlighter' ? 0.3 : 1.0;
             ctx.globalCompositeOperation = 'source-over';
-
-            ann.points.forEach((p, i) => {
-                if (i === 0) ctx.moveTo(p.x, p.y);
-                else ctx.lineTo(p.x, p.y);
-            });
+            ann.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
             ctx.stroke();
-            ctx.closePath();
         });
         
-        // Reset composite operation for future drawing
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1.0;
-
     }, [annotations, currentPage]);
 
     const renderPage = useCallback(async () => {
@@ -98,7 +84,6 @@ const Textbook: React.FC<TextbookProps> = ({
             
             const canvas = canvasRef.current;
             const annotationCanvas = annotationCanvasRef.current;
-
             if (canvas && annotationCanvas) {
                 const context = getContext(canvas);
                 canvas.height = viewport.height;
@@ -114,7 +99,8 @@ const Textbook: React.FC<TextbookProps> = ({
         } catch (error) {
             console.error("Error rendering PDF:", error);
         }
-    }, [selectedTextbook, currentPage, zoom, numPages, setNumPages, drawAnnotations]);
+        // Убрана зависимость numPages, чтобы предотвратить цикл перерисовки
+    }, [selectedTextbook, currentPage, zoom, setNumPages, drawAnnotations]);
 
     useEffect(() => {
         renderPage();
@@ -122,15 +108,10 @@ const Textbook: React.FC<TextbookProps> = ({
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (file && file.type === 'application/pdf') {
-            onAddTextbook(file);
-        }
+        if (file && file.type === 'application/pdf') onAddTextbook(file);
     };
     
-    // --- Drawing Handlers ---
     const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        const canvas = annotationCanvasRef.current;
-        if (!canvas) return;
         setIsDrawing(true);
         const { offsetX, offsetY } = e.nativeEvent;
         const newAnnotation: Annotation = { tool, color, points: [{ x: offsetX, y: offsetY }] };
@@ -144,9 +125,8 @@ const Textbook: React.FC<TextbookProps> = ({
         if (!ctx || !canvas) return;
         
         const { offsetX, offsetY } = e.nativeEvent;
-
-        const currentAnns = annotations[currentPage] || [];
-        if (currentAnns.length === 0) return;
+        const currentAnns = annotations[currentPage];
+        if (!currentAnns || currentAnns.length === 0) return;
 
         const lastAnn = currentAnns[currentAnns.length-1];
         lastAnn.points.push({ x: offsetX, y: offsetY });
@@ -163,36 +143,50 @@ const Textbook: React.FC<TextbookProps> = ({
              ctx.lineTo(points[points.length-1].x, points[points.length-1].y);
              ctx.stroke();
         }
-        ctx.closePath();
-        
-        // No need to call setAnnotations here, we are mutating the draft
     };
     
     const stopDrawing = () => {
         setIsDrawing(false);
-        // Trigger a re-save to localStorage by creating a new object
         setAnnotations(prev => ({...prev}));
     };
+    
+    const ToolbarButton: React.FC<{
+        label: string;
+        currentTool: Tool;
+        targetTool: Tool;
+        onClick: (tool: Tool) => void;
+        children: React.ReactNode;
+    }> = ({ label, currentTool, targetTool, onClick, children }) => (
+        <button
+            onClick={() => onClick(targetTool)}
+            className={`p-2 rounded-md transition-colors ${currentTool === targetTool ? 'bg-blue-500 text-white' : 'hover:bg-gray-200 dark:hover:bg-gray-700'}`}
+            aria-label={label}
+        >
+            {children}
+        </button>
+    );
 
     const Toolbar: React.FC = () => (
-         <div className="flex items-center gap-4 p-2 bg-gray-100 dark:bg-gray-900 rounded-lg">
-            <button onClick={() => setTool('pen')} className={tool === 'pen' ? 'text-blue-500' : ''}><PenIcon className="w-6 h-6"/></button>
-            <button onClick={() => setTool('highlighter')} className={tool === 'highlighter' ? 'text-blue-500' : ''}><HighlighterIcon className="w-6 h-6"/></button>
-            <button onClick={() => setTool('eraser')} className={tool === 'eraser' ? 'text-blue-500' : ''}><EraserIcon className="w-6 h-6"/></button>
-            <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-8 h-8 cursor-pointer" disabled={tool === 'eraser'}/>
+         <div className="flex items-center gap-2 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <ToolbarButton label="Pen" currentTool={tool} targetTool="pen" onClick={setTool}><PenIcon className="w-6 h-6"/></ToolbarButton>
+            <ToolbarButton label="Highlighter" currentTool={tool} targetTool="highlighter" onClick={setTool}><HighlighterIcon className="w-6 h-6"/></ToolbarButton>
+            <ToolbarButton label="Eraser" currentTool={tool} targetTool="eraser" onClick={setTool}><EraserIcon className="w-6 h-6"/></ToolbarButton>
+            <div className="w-px h-8 bg-gray-300 dark:bg-gray-600 mx-2"></div>
+            <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-8 h-8 cursor-pointer rounded-md border-2 border-gray-300 dark:border-gray-600" disabled={tool === 'eraser'}/>
+            <div className="w-px h-8 bg-gray-300 dark:bg-gray-600 mx-2"></div>
             <div className="flex items-center gap-2">
-               <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))}><ZoomOutIcon className="w-6 h-6"/></button>
-                <span>{Math.round(zoom * 100)}%</span>
-               <button onClick={() => setZoom(z => Math.min(3, z + 0.25))}><ZoomInIcon className="w-6 h-6"/></button>
+               <button onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"><ZoomOutIcon className="w-6 h-6"/></button>
+                <span className="w-16 text-center font-semibold">{Math.round(zoom * 100)}%</span>
+               <button onClick={() => setZoom(z => Math.min(3, z + 0.25))} className="p-2 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700"><ZoomInIcon className="w-6 h-6"/></button>
             </div>
         </div>
     );
     
     const Pagination: React.FC = () => (
-        <div className="flex items-center gap-4 p-2 bg-gray-100 dark:bg-gray-900 rounded-lg">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-2 rounded disabled:opacity-50">&lt;</button>
+        <div className="flex items-center gap-4 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&lt;</button>
             <span>Стр. {currentPage} из {numPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages} className="px-2 rounded disabled:opacity-50">&gt;</button>
+            <button onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&gt;</button>
         </div>
     );
 

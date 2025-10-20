@@ -3,13 +3,13 @@ import Header from './src/components/Header';
 import Sidebar from './src/components/Sidebar';
 import Workspace from './src/components/Workspace';
 import { USERS } from './src/utils/constants';
-import type { Message, Task, Annotation, Tool, TextbookFile } from './src/types';
+import type { Message, Task, Annotation, Tool, TextbookFile, TaskItemPart, VocabularyItem } from './src/types';
 import { generatePdfReport } from './src/services/pdfReportGenerator';
 
-type SidebarTab = 'video' | 'chat';
-
-// This is necessary for pdf.js to work when loaded from a CDN
 declare const window: any;
+
+type SidebarTab = 'video' | 'chat';
+type WorkspaceTab = 'tasks' | 'textbook' | 'whiteboard' | 'dictionary';
 
 const initialMessages: Message[] = [
   {
@@ -23,16 +23,14 @@ const initialMessages: Message[] = [
 const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('video');
-
-  // Textbook State
+  const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('tasks');
   const [textbooks, setTextbooks] = useState<TextbookFile[]>([]);
   const [selectedTextbook, setSelectedTextbook] = useState<TextbookFile | null>(null);
   const [numPages, setNumPages] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [zoom, setZoom] = useState(1.5);
-  
-  // Annotation State
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#FF0000');
   const [annotations, setAnnotations] = useState<{ [key: number]: Annotation[] }>({});
@@ -53,37 +51,36 @@ const App: React.FC = () => {
       user: USERS.RAFAEL,
     };
     setMessages(prev => [...prev, userMessage]);
-
-    // Simulate AI response
-    setTimeout(() => {
-      const aiMessage: Message = {
-        id: `msg-${Date.now() + 1}`,
-        text: '¡Muy bien! Continuemos.',
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        user: USERS.ANNA,
-      };
-      setMessages(prev => [...prev, aiMessage]);
-    }, 1000);
   }, []);
 
-  const handleGenerateTasks = (newTasks: Task[]) => {
+  const handleGenerateTasks = (newTasks: Task[], newVocabulary: VocabularyItem[]) => {
     setTasks(newTasks);
+    if (newVocabulary.length > 0) {
+        setVocabulary(prev => [...prev, ...newVocabulary]);
+        setActiveWorkspaceTab('dictionary');
+    }
   };
   
   const handleAnswerChange = (taskId: string, itemIndex: number, answer: string) => {
     setTasks(prevTasks =>
-      prevTasks.map(task => {
-        if (task.id === taskId) {
-          const newItems = [...task.items];
-          const newItem = { ...newItems[itemIndex], userAnswer: answer };
-          newItems[itemIndex] = newItem;
-          return { ...task, items: newItems };
-        }
-        return task;
-      })
+      prevTasks.map(task => 
+        task.id === taskId 
+          ? { ...task, items: task.items.map((item, i) => i === itemIndex ? { ...item, userAnswer: answer } : item) } 
+          : task
+      )
     );
   };
   
+  const handleTaskItemTextChange = (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => {
+     setTasks(prevTasks =>
+      prevTasks.map(task => 
+        task.id === taskId 
+          ? { ...task, items: task.items.map((item, i) => i === itemIndex ? { ...item, textParts: newTextParts } : item) } 
+          : task
+      )
+    );
+  };
+
   const handleCompleteTask = (taskId: string) => {
     setTasks(prevTasks =>
       prevTasks.map(task =>
@@ -93,9 +90,20 @@ const App: React.FC = () => {
   };
 
   const handleGenerateFinalReport = () => {
-    if (allTasksCompleted) {
-      generatePdfReport(tasks);
-    }
+    if (!allTasksCompleted) return;
+
+    const checkAndGenerate = (tries = 0) => {
+        if (typeof window.jspdf !== 'undefined' && typeof window.jspdf.autoTable !== 'undefined') {
+            generatePdfReport(tasks);
+        } else if (tries < 10) {
+            setTimeout(() => checkAndGenerate(tries + 1), 100);
+        } else {
+            console.error("jsPDF or jsPDF-autoTable not loaded after 1 second.");
+            alert("Ошибка при генерации PDF: не удалось загрузить модули. Пожалуйста, обновите страницу.");
+        }
+    };
+
+    checkAndGenerate();
   };
 
   const handleAddTextbook = (file: File) => {
@@ -104,6 +112,15 @@ const App: React.FC = () => {
       if (!selectedTextbook) {
           setSelectedTextbook(newTextbook);
       }
+  };
+
+  const handleNavigateToPage = (page: number) => {
+    if(textbooks.length === 0) {
+        alert("Пожалуйста, сначала загрузите учебник во вкладке 'Учебник'.");
+        return;
+    }
+    setActiveWorkspaceTab('textbook');
+    setCurrentPage(page);
   };
 
   return (
@@ -118,10 +135,14 @@ const App: React.FC = () => {
         />
         <Workspace
           tasks={tasks}
+          vocabulary={vocabulary}
           onGenerateTasks={handleGenerateTasks}
           onAnswerChange={handleAnswerChange}
           onCompleteTask={handleCompleteTask}
-          // Textbook props
+          onTaskItemTextChange={handleTaskItemTextChange}
+          onNavigateToPage={handleNavigateToPage}
+          activeTab={activeWorkspaceTab}
+          setActiveTab={setActiveWorkspaceTab}
           textbooks={textbooks}
           selectedTextbook={selectedTextbook}
           setSelectedTextbook={setSelectedTextbook}
@@ -132,7 +153,6 @@ const App: React.FC = () => {
           setCurrentPage={setCurrentPage}
           zoom={zoom}
           setZoom={setZoom}
-          // Annotation props
           tool={tool}
           setTool={setTool}
           color={color}

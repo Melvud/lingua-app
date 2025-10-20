@@ -10,17 +10,18 @@ const loadFont = (): string => {
 
 export const generatePdfReport = (tasks: Task[]): void => {
     const { jsPDF } = window.jspdf;
-    if (!jsPDF) {
-        console.error("jsPDF not loaded");
+    if (!jsPDF || !jsPDF.autoTable) {
+        console.error("jsPDF or jsPDF-autoTable not loaded");
+        alert("Ошибка при генерации PDF: необходимый модуль не загружен.");
         return;
     }
 
     const doc = new jsPDF();
     const fontBase64 = loadFont();
     if (fontBase64) {
-        doc.addFileToVFS('PTSans-Regular.ttf', fontBase64);
-        doc.addFont('PTSans-Regular.ttf', 'PTSans', 'normal');
-        doc.setFont('PTSans');
+        doc.addFileToVFS('Arimo-Regular.ttf', fontBase64);
+        doc.addFont('Arimo-Regular.ttf', 'Arimo', 'normal');
+        doc.setFont('Arimo');
     } else {
         console.warn("Font could not be loaded for PDF.");
     }
@@ -31,59 +32,60 @@ export const generatePdfReport = (tasks: Task[]): void => {
     doc.text(`Студент: Рафаэль`, 14, 35);
     doc.text(`Дата: ${new Date().toLocaleDateString('ru-RU')}`, 14, 42);
 
-    let y = 60;
-    const pageHeight = doc.internal.pageSize.height;
-    const margin = 20;
-
-    tasks.forEach((task, taskIndex) => {
-        if (y > pageHeight - margin * 2) {
-            doc.addPage();
-            y = 20;
-        }
-
-        doc.setFontSize(14);
-        doc.setFont('PTSans', 'normal');
-        doc.setTextColor(40);
-        
-        const taskTitle = `Задание ${taskIndex + 1}: ${task.instruction}`;
-        const titleLines = doc.splitTextToSize(taskTitle, 180);
-        doc.text(titleLines, 14, y);
-        y += titleLines.length * 7 + 5;
-        
-        doc.setDrawColor(200);
-        doc.line(14, y - 3, 196, y - 3);
-
-
-        task.items.forEach((item, itemIndex) => {
-             if (y > pageHeight - margin) {
-                doc.addPage();
-                y = 20;
+    const tableData = tasks.flatMap((task) => 
+        task.items.map((item, itemIndex) => {
+            let itemContent = '';
+            let userAnswerContent = item.userAnswer || 'Нет ответа';
+            
+            let taskTitle = task.instruction;
+            if (task.pageNumber || task.exerciseNumber) {
+                taskTitle = `(Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}) ${task.instruction}`;
             }
 
-            doc.setFontSize(12);
-
-            if (item.type === 'fill-in-the-blank') {
-                const text = item.textParts?.map(p => p.isAnswer ? `[ ${item.userAnswer || '...'} ]` : p.text).join('') || '';
-                const itemLines = doc.splitTextToSize(`${itemIndex + 1}. ${text}`, 170);
-                doc.text(itemLines, 20, y);
-                y += itemLines.length * 7 + 4;
-            } else if (item.type === 'translate') {
-                const sourceText = `Исходный текст: "${item.textParts?.[0].text}"`;
-                const answerText = `Ваш перевод: ${item.userAnswer || 'Нет ответа'}`;
-                
-                const sourceLines = doc.splitTextToSize(sourceText, 170);
-                doc.text(sourceLines, 20, y);
-                y += sourceLines.length * 7 + 1;
-                
-                const answerLines = doc.splitTextToSize(answerText, 170);
-                doc.text(answerLines, 20, y);
-                y += answerLines.length * 7 + 4;
+            switch (item.type) {
+                case 'fill-in-the-blank':
+                    itemContent = item.textParts?.map(p => p.isAnswer ? `[ ... ]` : p.text).join('') || '';
+                    break;
+                case 'translate':
+                    itemContent = `Перевести: "${item.textParts?.[0].text}"`;
+                    break;
+                case 'plain-text':
+                    itemContent = item.textParts?.map(p => p.text).join('\n') || '';
+                    if (task.type === 'oral') {
+                       userAnswerContent = `(Устное задание)`;
+                    }
+                    break;
+                default:
+                    itemContent = 'Неизвестный тип задания';
             }
-        });
-        
-        y += 10; // Space between tasks
+            
+            const finalTitle = itemIndex === 0 ? taskTitle : '';
+
+            return [finalTitle, itemContent, userAnswerContent];
+        })
+    );
+
+    doc.autoTable({
+        startY: 55,
+        head: [['Задание', 'Содержание', 'Ответ студента']],
+        body: tableData,
+        theme: 'grid',
+        styles: {
+            font: 'Arimo',
+            cellPadding: 3,
+            fontSize: 10,
+        },
+        headStyles: {
+            fillColor: [41, 128, 185],
+            textColor: 255,
+            fontStyle: 'bold',
+        },
+        columnStyles: {
+            0: { cellWidth: 70 }, 
+            1: { cellWidth: 65 }, 
+            2: { cellWidth: 'auto' }, 
+        },
     });
-
 
     doc.save('co-study-hub-report-final.pdf');
 };
