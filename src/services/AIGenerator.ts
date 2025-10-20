@@ -1,8 +1,10 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Task, VocabularyItem } from '../types';
 
+console.log('🔑 API Key from env:', process.env.API_KEY ? 'EXISTS' : 'NOT FOUND');
+
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-const model = 'gemini-2.5-flash';
+const model = 'gemini-2.0-flash-exp'; // Используем более быструю модель
 
 const responseSchema = {
     type: Type.OBJECT,
@@ -13,8 +15,10 @@ const responseSchema = {
             items: {
                 type: Type.OBJECT,
                 properties: {
-                    instruction: { type: Type.STRING }, type: { type: Type.STRING, enum: ['written', 'oral'] },
-                    pageNumber: { type: Type.STRING }, exerciseNumber: { type: Type.STRING },
+                    instruction: { type: Type.STRING }, 
+                    type: { type: Type.STRING, enum: ['written', 'oral'] },
+                    pageNumber: { type: Type.STRING }, 
+                    exerciseNumber: { type: Type.STRING },
                     items: {
                         type: Type.ARRAY,
                         items: {
@@ -25,7 +29,10 @@ const responseSchema = {
                                     type: Type.ARRAY,
                                     items: {
                                         type: Type.OBJECT,
-                                        properties: { text: { type: Type.STRING }, isAnswer: { type: Type.BOOLEAN } },
+                                        properties: { 
+                                            text: { type: Type.STRING }, 
+                                            isAnswer: { type: Type.BOOLEAN } 
+                                        },
                                         required: ['text', 'isAnswer']
                                     }
                                 }
@@ -58,11 +65,48 @@ interface AIResponse {
     vocabulary: VocabularyItem[];
 }
 
+// Функция для задержки
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Функция повторных попыток
+async function retryWithBackoff<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 2000
+): Promise<T> {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            const isLastAttempt = i === maxRetries - 1;
+            const isRetryableError = 
+                error?.message?.includes('503') || 
+                error?.message?.includes('overloaded') ||
+                error?.message?.includes('UNAVAILABLE') ||
+                error?.message?.includes('429');
+
+            if (isLastAttempt || !isRetryableError) {
+                throw error;
+            }
+
+            const delayMs = baseDelay * Math.pow(2, i); // Exponential backoff
+            console.log(`⏳ Попытка ${i + 1}/${maxRetries} не удалась. Повтор через ${delayMs}ms...`);
+            await delay(delayMs);
+        }
+    }
+    throw new Error('Max retries reached');
+}
+
 export const generateTasksFromText = async (
     userPrompt: string,
     contextText: string,
     imageBase64?: string
 ): Promise<AIResponse> => {
+    
+    console.log('🤖 generateTasksFromText called');
+    console.log('📝 User prompt:', userPrompt);
+    console.log('📄 Context text length:', contextText.length);
+    console.log('🖼️ Has image:', !!imageBase64);
     
     const contents: any[] = [{ text: `
         ТЫ — ИИ-АССИСТЕНТ ПРЕПОДАВАТЕЛЯ. Твоя задача — точно и аккуратно создавать учебные материалы.
@@ -87,25 +131,67 @@ export const generateTasksFromText = async (
     }
 
     try {
-        const response = await ai.models.generateContent({
-            model,
-            contents: { parts: contents },
-            config: { responseMimeType: "application/json", responseSchema }
-        });
+        console.log('🌐 Calling Gemini API with retry logic...');
+        
+        const response = await retryWithBackoff(async () => {
+            return await ai.models.generateContent({
+                model,
+                contents: { parts: contents },
+                config: { 
+                    responseMimeType: "application/json", 
+                    responseSchema,
+                    temperature: 0.7
+                }
+            });
+        }, 3, 2000); // 3 попытки с базовой задержкой 2 секунды
 
-        const jsonResponse: AIResponse = JSON.parse(response.text);
+        console.log('✅ API Response received');
+        
+        let jsonResponse: AIResponse;
+        try {
+            jsonResponse = JSON.parse(response.text);
+        } catch (parseError) {
+            console.error('❌ Failed to parse JSON response:', response.text);
+            throw new Error('Получен некорректный ответ от AI. Попробуйте еще раз.');
+        }
+        
+        console.log('📊 Parsed JSON:', jsonResponse);
 
         const tasks: Task[] = (jsonResponse.tasks || []).map((task, index) => ({
             ...task,
             id: `task-${Date.now()}-${index}`,
-            status: 'incomplete',
+            status: 'incomplete' as const,
             items: task.items.map(item => ({ ...item, userAnswer: '' }))
         }));
 
-        return { tasks, vocabulary: jsonResponse.vocabulary || [] };
+        const vocabulary: VocabularyItem[] = (jsonResponse.vocabulary || []).map((item, index) => ({
+            ...item,
+            id: `vocab-${Date.now()}-${index}`
+        }));
 
-    } catch (error) {
-        console.error('Error generating tasks:', error);
-        throw new Error("Не удалось сгенерировать задания. Проверьте ваш запрос и попробуйте снова.");
+        console.log('✅ Final tasks:', tasks);
+        console.log('✅ Final vocabulary:', vocabulary);
+
+        return { tasks, vocabulary };
+
+    } catch (error: any) {
+        console.error('❌ ERROR in generateTasksFromText:', error);
+        
+        // Улучшенная обработка ошибок
+        let errorMessage = 'Не удалось сгенерировать задания.';
+        
+        if (error?.message?.includes('503') || error?.message?.includes('overloaded')) {
+            errorMessage = 'Сервис AI временно перегружен. Пожалуйста, попробуйте через 1-2 минуты.';
+        } else if (error?.message?.includes('429')) {
+            errorMessage = 'Превышен лимит запросов. Подождите немного и попробуйте снова.';
+        } else if (error?.message?.includes('401') || error?.message?.includes('API key')) {
+            errorMessage = 'Ошибка API ключа. Проверьте настройки.';
+        } else if (error?.message?.includes('400')) {
+            errorMessage = 'Некорректный запрос. Попробуйте изменить текст инструкции.';
+        } else if (error?.message) {
+            errorMessage = error.message;
+        }
+        
+        throw new Error(errorMessage);
     }
 };

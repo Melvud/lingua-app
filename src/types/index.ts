@@ -12,6 +12,7 @@ export interface Message {
 }
 
 export interface VocabularyItem {
+    id: string;
     word: string;
     translation: string;
     context: string;

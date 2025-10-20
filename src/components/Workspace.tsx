@@ -15,6 +15,9 @@ interface WorkspaceProps {
     onCompleteTask: (taskId: string) => void;
     onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
     onNavigateToPage: (page: number) => void;
+    onAddVocabularyItem: (item: Omit<VocabularyItem, 'id'>) => void;
+    onUpdateVocabularyItem: (id: string, updates: Partial<VocabularyItem>) => void;
+    onDeleteVocabularyItem: (id: string) => void;
     activeTab: WorkspaceTab;
     setActiveTab: (tab: WorkspaceTab) => void;
     
@@ -47,6 +50,7 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
 
     const { 
         tasks, vocabulary, onGenerateTasks, onAnswerChange, onCompleteTask, onTaskItemTextChange, onNavigateToPage,
+        onAddVocabularyItem, onUpdateVocabularyItem, onDeleteVocabularyItem,
         activeTab, setActiveTab, ...textbookProps 
     } = props;
 
@@ -73,7 +77,14 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
                 {activeTab === 'tasks' && <Tasks tasks={tasks} onGenerateTasks={onGenerateTasks} onAnswerChange={onAnswerChange} onCompleteTask={onCompleteTask} onTaskItemTextChange={onTaskItemTextChange} onNavigateToPage={onNavigateToPage} />}
                 {activeTab === 'textbook' && <Textbook {...textbookProps} />}
                 {activeTab === 'whiteboard' && <Whiteboard />}
-                {activeTab === 'dictionary' && <Dictionary vocabulary={vocabulary} />}
+                {activeTab === 'dictionary' && (
+                    <Dictionary 
+                        vocabulary={vocabulary} 
+                        onAddItem={onAddVocabularyItem}
+                        onUpdateItem={onUpdateVocabularyItem}
+                        onDeleteItem={onDeleteVocabularyItem}
+                    />
+                )}
             </div>
         </main>
     );
