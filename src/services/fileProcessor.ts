@@ -1,26 +1,36 @@
 declare const window: any;
 
 /**
- * Extracts text from a specific page of a PDF file.
+ * Extracts text from a PDF file from the beginning up to a specified page number.
  */
-export const extractTextFromPdfPage = async (file: File, pageNumber: number): Promise<string> => {
+export const extractTextUpToPage = async (file: File, pageLimit: number): Promise<string> => {
     if (file.type !== 'application/pdf') {
         throw new Error('Файл не является PDF.');
     }
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await window.pdfjsLib.getDocument(arrayBuffer).promise;
 
-    if (pageNumber > pdf.numPages || pageNumber < 1) {
-        throw new Error(`Неверный номер страницы. В документе всего ${pdf.numPages} страниц.`);
+    // Определяем, до какой страницы считывать, но не больше, чем есть в документе
+    const lastPageToRead = Math.min(pageLimit, pdf.numPages);
+    
+    if (pageLimit > pdf.numPages) {
+        console.warn(`Запрошенная страница (${pageLimit}) превышает количество страниц в документе (${pdf.numPages}). Будут обработаны все страницы.`);
     }
 
-    const page = await pdf.getPage(pageNumber);
-    const content = await page.getTextContent();
-    return content.items.map((item: any) => 'str' in item ? item.str : '').join(' ');
+    let fullText = '';
+    for (let i = 1; i <= lastPageToRead; i++) {
+        const page = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        // Собираем текст со страницы и добавляем разделитель для ясности
+        const pageText = content.items.map((item: any) => ('str' in item ? item.str : '')).join(' ');
+        fullText += `--- START PAGE ${i} ---\n${pageText}\n--- END PAGE ${i} ---\n\n`;
+    }
+
+    return fullText;
 };
 
 /**
- * Extracts text from various file types (excluding PDF page-specific logic).
+ * Extracts text from various file types (e.g., .docx, .txt).
  */
 export const extractTextFromFile = async (file: File): Promise<string> => {
     if (file.type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') { // .docx
@@ -31,9 +41,9 @@ export const extractTextFromFile = async (file: File): Promise<string> => {
     if (file.type.startsWith('text/')) {
         return file.text();
     }
-    // PDF processing is now handled by extractTextFromPdfPage
     if (file.type === 'application/pdf') {
-        return "Для работы с PDF укажите номер страницы в запросе.";
+        // PDF теперь обрабатывается через extractTextUpToPage
+        return "Для работы с PDF укажите номер страницы в запросе, чтобы определить диапазон сканирования.";
     }
     throw new Error('Неподдерживаемый тип файла.');
 };

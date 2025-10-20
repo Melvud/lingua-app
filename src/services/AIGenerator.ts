@@ -3,8 +3,7 @@ import type { Task, VocabularyItem } from '../types';
 
 console.log('🔑 API Key from env:', process.env.API_KEY ? 'EXISTS' : 'NOT FOUND');
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
-const model = 'gemini-2.0-flash-exp'; // Используем более быструю модель
+const model = 'gemini-2.5-flash';
 
 const responseSchema = {
     type: Type.OBJECT,
@@ -65,10 +64,8 @@ interface AIResponse {
     vocabulary: VocabularyItem[];
 }
 
-// Функция для задержки
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-// Функция повторных попыток
 async function retryWithBackoff<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
@@ -89,7 +86,7 @@ async function retryWithBackoff<T>(
                 throw error;
             }
 
-            const delayMs = baseDelay * Math.pow(2, i); // Exponential backoff
+            const delayMs = baseDelay * Math.pow(2, i);
             console.log(`⏳ Попытка ${i + 1}/${maxRetries} не удалась. Повтор через ${delayMs}ms...`);
             await delay(delayMs);
         }
@@ -103,6 +100,9 @@ export const generateTasksFromText = async (
     imageBase64?: string
 ): Promise<AIResponse> => {
     
+    // ** ИСПРАВЛЕНИЕ: Инициализация клиента здесь **
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+
     console.log('🤖 generateTasksFromText called');
     console.log('📝 User prompt:', userPrompt);
     console.log('📄 Context text length:', contextText.length);
@@ -143,7 +143,7 @@ export const generateTasksFromText = async (
                     temperature: 0.7
                 }
             });
-        }, 3, 2000); // 3 попытки с базовой задержкой 2 секунды
+        }, 3, 2000);
 
         console.log('✅ API Response received');
         
@@ -177,7 +177,6 @@ export const generateTasksFromText = async (
     } catch (error: any) {
         console.error('❌ ERROR in generateTasksFromText:', error);
         
-        // Улучшенная обработка ошибок
         let errorMessage = 'Не удалось сгенерировать задания.';
         
         if (error?.message?.includes('503') || error?.message?.includes('overloaded')) {

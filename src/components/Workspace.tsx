@@ -2,10 +2,9 @@ import React from 'react';
 import Tasks from './Tasks';
 import Textbook from './Textbook';
 import Dictionary from './Dictionary';
-import Whiteboard from './Whiteboard';
 import type { Task, Annotation, Tool, TextbookFile, TaskItemPart, VocabularyItem } from '../types';
 
-type WorkspaceTab = 'tasks' | 'textbook' | 'whiteboard' | 'dictionary';
+type WorkspaceTab = 'tasks' | 'textbook' | 'dictionary';
 
 interface WorkspaceProps {
     tasks: Task[];
@@ -44,7 +43,6 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
     const TABS: { id: WorkspaceTab; label: string }[] = [
         { id: 'tasks', label: 'Задания' },
         { id: 'textbook', label: 'Учебник' },
-        { id: 'whiteboard', label: 'Доска' },
         { id: 'dictionary', label: 'Словарь' },
     ];
 
@@ -76,7 +74,6 @@ const Workspace: React.FC<WorkspaceProps> = (props) => {
             <div className="flex-grow pt-4 min-h-0">
                 {activeTab === 'tasks' && <Tasks tasks={tasks} onGenerateTasks={onGenerateTasks} onAnswerChange={onAnswerChange} onCompleteTask={onCompleteTask} onTaskItemTextChange={onTaskItemTextChange} onNavigateToPage={onNavigateToPage} />}
                 {activeTab === 'textbook' && <Textbook {...textbookProps} />}
-                {activeTab === 'whiteboard' && <Whiteboard />}
                 {activeTab === 'dictionary' && (
                     <Dictionary 
                         vocabulary={vocabulary} 

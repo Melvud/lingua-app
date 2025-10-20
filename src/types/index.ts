@@ -26,7 +26,8 @@ export interface TaskItemPart {
 export interface TaskItem {
   type: 'fill-in-the-blank' | 'translate' | 'plain-text';
   textParts: TaskItemPart[];
-  userAnswer?: string;
+  // ИСПРАВЛЕНИЕ: Заменяем userAnswer на массив userAnswers
+  userAnswers?: string[]; 
 }
 
 export interface Task {

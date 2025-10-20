@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import type { Task, TaskItem, TaskItemPart, VocabularyItem } from '../types';
 import { generateTasksFromText } from '../services/AIGenerator';
-import { extractTextFromPdfPage, extractTextFromFile } from '../services/fileProcessor';
+import { extractTextUpToPage, extractTextFromFile } from '../services/fileProcessor'; // Обновленный импорт
 import { UploadIcon, TrashIcon, CheckCircleIcon, PenIcon } from './Icons';
 
 interface TasksProps {
@@ -18,12 +18,11 @@ const TaskGenerator: React.FC<{
     onTasksGenerated: () => void;
 }> = ({ onGenerateTasks, onTasksGenerated }) => {
     const [files, setFiles] = useState<File[]>([]);
-    const [instruction, setInstruction] = useState('учим слова стр 27 упр 5');
+    const [instruction, setInstruction] = useState('создай 3 упражнения по тексту на стр 35-36');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
 
     const handleFileDrop = useCallback((acceptedFiles: File[]) => {
-        console.log('📁 Files dropped:', acceptedFiles);
         setFiles(prev => [...prev, ...acceptedFiles]);
         setError('');
     }, []);
@@ -33,160 +32,80 @@ const TaskGenerator: React.FC<{
     };
     
     const getPageNumberFromInstruction = (text: string): number | null => {
-        const match = text.match(/стр(?:аница|\.)?\s*(\d+)/i);
-        return match ? parseInt(match[1], 10) : null;
-    };
-
-    // Тестовая функция для проверки flow данных
-    const generateTestTasks = () => {
-        console.log('🧪 Generating TEST tasks...');
-        
-        const testTasks: Task[] = [
-            {
-                id: `task-${Date.now()}-0`,
-                instruction: 'Тестовое задание на заполнение пропусков',
-                type: 'written',
-                status: 'incomplete',
-                pageNumber: '27',
-                exerciseNumber: '5',
-                items: [
-                    {
-                        type: 'fill-in-the-blank',
-                        textParts: [
-                            { text: 'Yo ', isAnswer: false },
-                            { text: '', isAnswer: true },
-                            { text: ' estudiante', isAnswer: false }
-                        ],
-                        userAnswer: ''
-                    }
-                ]
-            },
-            {
-                id: `task-${Date.now()}-1`,
-                instruction: 'Тестовое задание на перевод',
-                type: 'written',
-                status: 'incomplete',
-                items: [
-                    {
-                        type: 'translate',
-                        textParts: [
-                            { text: 'Привет, как дела?', isAnswer: false }
-                        ],
-                        userAnswer: ''
-                    }
-                ]
-            }
-        ];
-        
-        const testVocabulary: VocabularyItem[] = [
-            {
-                id: `vocab-${Date.now()}-0`,
-                word: 'hola',
-                translation: 'привет',
-                context: 'Hola, ¿cómo estás?'
-            },
-            {
-                id: `vocab-${Date.now()}-1`,
-                word: 'gracias',
-                translation: 'спасибо',
-                context: 'Muchas gracias por tu ayuda.'
-            }
-        ];
-        
-        console.log('✅ Test tasks created:', testTasks);
-        console.log('✅ Test vocabulary created:', testVocabulary);
-        
-        onGenerateTasks(testTasks, testVocabulary);
-        onTasksGenerated();
+        // Ищем последнее упоминание страницы, чтобы определить границу
+        const matches = text.match(/стр(?:аница|\.)?\s*(\d+)/gi);
+        if (!matches) return null;
+        const lastMatch = matches[matches.length - 1];
+        const pageNum = lastMatch.match(/\d+/);
+        return pageNum ? parseInt(pageNum[0], 10) : null;
     };
 
     const handleSubmit = async () => {
-    console.log('🎯 handleSubmit CLICKED!');
-    console.log('📋 Current state:', { files, instruction, isLoading });
-    
-    setIsLoading(true);
-    setError('');
-    
-    try {
-        let contextText = '';
-        const pageNumber = getPageNumberFromInstruction(instruction);
-        const pdfFile = files.find(f => f.type === 'application/pdf');
+        setIsLoading(true);
+        setError('');
         
-        console.log('📄 Files:', files);
-        console.log('📖 Page number:', pageNumber);
-        console.log('📝 Instruction:', instruction);
-        
-        if (files.length === 0 && !instruction.trim()) {
-            console.log('⚠️ No files and no instruction - showing error');
-            setError('Пожалуйста, добавьте файл или введите инструкцию.');
-            setIsLoading(false);
-            return;
-        }
-        
-        if (pdfFile && pageNumber) {
-            console.log('📚 Extracting text from PDF page', pageNumber);
-            try {
-                contextText = await extractTextFromPdfPage(pdfFile, pageNumber);
-                console.log('✅ Text extracted:', contextText.substring(0, 100) + '...');
-            } catch (pdfError) {
-                console.error('❌ PDF extraction error:', pdfError);
-                setError('Ошибка при чтении PDF. Убедитесь, что файл не поврежден.');
+        try {
+            let contextText = '';
+            const lastPageMentioned = getPageNumberFromInstruction(instruction);
+            const pdfFile = files.find(f => f.type === 'application/pdf');
+            
+            if (!pdfFile && !instruction) {
+                setError('Пожалуйста, загрузите файл и введите инструкцию.');
                 setIsLoading(false);
                 return;
             }
-        } else if (files.length > 0) {
-            for (const file of files.filter(f => f.type !== 'application/pdf')) {
-                console.log('📄 Processing file:', file.name);
-                try {
-                    contextText += await extractTextFromFile(file);
-                } catch (fileError) {
-                    console.error('❌ File processing error:', fileError);
-                    setError(`Ошибка при обработке файла ${file.name}`);
+
+            if (pdfFile) {
+                if (lastPageMentioned) {
+                    // **НОВАЯ ЛОГИКА: Читаем до указанной страницы + 1**
+                    const readUpToPage = lastPageMentioned + 1;
+                    console.log(`📚 Reading PDF up to page ${readUpToPage}...`);
+                    contextText = await extractTextUpToPage(pdfFile, readUpToPage);
+
+                    if (!contextText.trim()) {
+                       setError(`Не удалось извлечь текст из PDF до страницы ${readUpToPage}. Возможно, документ пуст.`);
+                       setIsLoading(false);
+                       return;
+                    }
+                } else {
+                    setError('Для PDF файла необходимо указать номер страницы в инструкции, чтобы ограничить контекст.');
                     setIsLoading(false);
                     return;
                 }
             }
-        } else {
-            contextText = 'Создай задания на основе запроса пользователя.';
-        }
-        
-        if (pdfFile && !pageNumber) {
-            setError('Для PDF файла необходимо указать номер страницы в запросе (например, "стр 27").');
-            setIsLoading(false);
-            return;
-        }
+            
+            // Обработка других файлов
+            for (const file of files.filter(f => f.type !== 'application/pdf')) {
+                contextText += await extractTextFromFile(file) + '\n';
+            }
 
-        console.log('🤖 Calling AI to generate tasks...');
-        console.log('📝 Context text length:', contextText.length);
-        
-        const { tasks, vocabulary } = await generateTasksFromText(instruction, contextText);
-        
-        console.log('✅ Tasks generated:', tasks);
-        console.log('📚 Vocabulary generated:', vocabulary);
-        
-        onGenerateTasks(tasks, vocabulary);
-        onTasksGenerated();
-        
-        setFiles([]);
-        setInstruction('');
-        
-    } catch (err) {
-        console.error('❌ Error generating tasks:', err);
-        const errorMessage = err instanceof Error ? err.message : 'Произошла неизвестная ошибка при генерации заданий';
-        setError(errorMessage);
-    } finally {
-        setIsLoading(false);
-    }
-};
+            if (!contextText.trim()) {
+                 contextText = 'Контекст из файла отсутствует. Создай задания только на основе запроса пользователя.';
+            }
+
+            const { tasks, vocabulary } = await generateTasksFromText(instruction, contextText);
+            
+            if (tasks.length === 0 && vocabulary.length === 0) {
+                 setError('ИИ не смог сгенерировать задания или слова. Попробуйте уточнить запрос или проверьте страницы в файле.');
+            } else {
+                onGenerateTasks(tasks, vocabulary);
+                onTasksGenerated();
+                setFiles([]);
+                setInstruction('');
+            }
+            
+        } catch (err: any) {
+            setError(err.message || 'Произошла неизвестная ошибка.');
+        } finally {
+            setIsLoading(false);
+        }
+    };
     
     return (
         <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700 space-y-4 mb-6">
             <div
                 className="flex justify-center items-center w-full px-6 py-10 border-2 border-gray-300 dark:border-gray-600 border-dashed rounded-md cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-                onClick={() => {
-                    console.log('📁 Upload area clicked');
-                    document.getElementById('file-upload-tasks')?.click();
-                }}
+                onClick={() => document.getElementById('file-upload-tasks')?.click()}
             >
                 <div className="text-center">
                     <UploadIcon className="mx-auto h-12 w-12 text-gray-400" />
@@ -199,10 +118,7 @@ const TaskGenerator: React.FC<{
                         className="hidden" 
                         multiple 
                         accept=".pdf,.docx"
-                        onChange={(e) => {
-                            console.log('📁 Files selected:', e.target.files);
-                            handleFileDrop(Array.from(e.target.files || []));
-                        }} 
+                        onChange={(e) => handleFileDrop(Array.from(e.target.files || []))} 
                     />
                 </div>
             </div>
@@ -212,13 +128,7 @@ const TaskGenerator: React.FC<{
                     {files.map((file, i) => (
                         <div key={i} className="flex justify-between items-center bg-gray-200 dark:bg-gray-700 p-2 rounded-md">
                             <span className="text-sm truncate">{file.name}</span>
-                            <button 
-                                onClick={() => {
-                                    console.log('🗑️ Removing file:', file.name);
-                                    removeFile(file);
-                                }} 
-                                className="p-1 hover:bg-gray-300 dark:hover:bg-gray-600 rounded"
-                            >
+                            <button onClick={() => removeFile(file)} className="p-1 hover:bg-gray-300 dark:hover:bg-gray-600 rounded">
                                 <TrashIcon className="w-4 h-4 text-gray-500 hover:text-red-500" />
                             </button>
                         </div>
@@ -228,47 +138,19 @@ const TaskGenerator: React.FC<{
 
             <textarea
                 value={instruction}
-                onChange={(e) => {
-                    console.log('✏️ Instruction changed:', e.target.value);
-                    setInstruction(e.target.value);
-                }}
-                placeholder="Инструкция для ИИ (например, 'стр 27 упр 5' или 'учим слова стр 10')"
+                onChange={(e) => setInstruction(e.target.value)}
+                placeholder="Инструкция для ИИ (например, 'создай упражнение по тексту на стр 35')"
                 className="w-full bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={3}
             />
             
             <div className="flex gap-2">
                 <button
-                    onClick={() => {
-                        console.log('🎯 Generate button CLICKED!');
-                        handleSubmit();
-                    }}
+                    onClick={handleSubmit}
                     disabled={isLoading}
                     className="flex-1 bg-blue-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center gap-2"
                 >
-                    {isLoading ? (
-                        <>
-                            <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
-                            Генерация...
-                        </>
-                    ) : (
-                        'Сгенерировать задания'
-                    )}
-                </button>
-                
-                <button
-                    onClick={() => {
-                        console.log('🧪 Test button CLICKED!');
-                        generateTestTasks();
-                    }}
-                    disabled={isLoading}
-                    className="bg-green-600 text-white font-semibold py-3 px-4 rounded-lg shadow-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200"
-                    title="Создать тестовые задания для проверки"
-                >
-                    🧪 Тест
+                    {isLoading ? ( <> <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"> <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle> <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path> </svg> Генерация... </> ) : ( 'Сгенерировать задания' )}
                 </button>
             </div>
             
@@ -281,8 +163,7 @@ const TaskGenerator: React.FC<{
         </div>
     );
 };
-
-
+// Компонент TaskCard остается без изменений
 const TaskCard: React.FC<{ 
     task: Task; 
     onAnswerChange: (taskId: string, itemIndex: number, answer: string) => void; 
@@ -429,16 +310,13 @@ const TaskCard: React.FC<{
     );
 };
 
+
 const Tasks: React.FC<TasksProps> = ({ tasks, onGenerateTasks, onAnswerChange, onCompleteTask, onTaskItemTextChange, onNavigateToPage }) => {
     const [isGeneratorVisible, setIsGeneratorVisible] = useState(true);
     const completedCount = tasks.filter(t => t.status === 'completed').length;
     const handleTasksGenerated = () => {
-        console.log('✅ Tasks generated callback fired');
         setIsGeneratorVisible(false);
     };
-
-    console.log('📊 Tasks component - tasks count:', tasks.length);
-    console.log('📊 Generator visible:', isGeneratorVisible);
 
     return (
         <div className="h-full flex flex-col">
@@ -450,10 +328,7 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onGenerateTasks, onAnswerChange, o
                     />
                 ) : (
                     <button 
-                        onClick={() => {
-                            console.log('➕ Show generator clicked');
-                            setIsGeneratorVisible(true);
-                        }}
+                        onClick={() => setIsGeneratorVisible(true)}
                         className="w-full text-center py-3 px-4 mb-4 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg transition-all duration-200 font-semibold shadow-md"
                     >
                         + Создать еще задания
