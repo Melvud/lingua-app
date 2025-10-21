@@ -4,7 +4,7 @@ import TaskGenerator from './TaskGenerator';
 import Tasks from './Tasks';
 import Textbook from './Textbook';
 import Dictionary from './Dictionary';
-import type { Task, VocabularyItem, Annotation, Tool, TaskItemPart, TextbookFile } from '../types';
+import type { Task, VocabularyItem, TaskItemPart, TextbookFile, UserAnswersStore, Tool, AnnotationStore } from '../types';
 
 type WorkspaceTab = 'tasks' | 'textbook' | 'dictionary';
 
@@ -14,16 +14,19 @@ interface SharedData {
   currentPage: number;
   files: Array<{ name: string; url: string }>;
   instruction: string;
+  selectedTextbookName?: string | null; 
+  annotations?: AnnotationStore; 
 }
 
 interface WorkspaceProps {
   tasks: Task[];
+  userAnswers: UserAnswersStore; 
   vocabulary: VocabularyItem[];
   onGenerateTasks: (tasks: Task[], vocabulary: VocabularyItem[]) => void;
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
-  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлено
+  onDeleteTask: (taskId: string) => void; 
   onNavigateToPage: (page: number) => void;
   onAddVocabularyItem: (item: Omit<VocabularyItem, 'id'>) => void;
   onUpdateVocabularyItem: (id: string, updates: Partial<VocabularyItem>) => void;
@@ -34,24 +37,21 @@ interface WorkspaceProps {
   onUpdateSharedFiles: (files: File[]) => void;
   onUpdateSharedInstruction: (instruction: string) => void;
   onAddTextbook: (file: File) => void;
+  onSelectTextbook: (name: string | null) => void; 
   currentPage: number;
   onPageChange: (page: number) => void;
-  tool: Tool;
-  setTool: (tool: Tool) => void;
-  color: string;
-  setColor: (color: string) => void;
-  annotations: { [key: number]: Annotation[] };
-  setAnnotations: (annotations: { [key: number]: Annotation[] }) => void;
+  onUpdateSharedAnnotations: (annotations: AnnotationStore) => void;
 }
 
 const Workspace: React.FC<WorkspaceProps> = ({
   tasks,
+  userAnswers, // Это может быть undefined при первой загрузке
   vocabulary,
   onGenerateTasks,
   onAnswerChange,
   onCompleteTask,
   onTaskItemTextChange,
-  onDeleteTask, // ИСПРАВЛЕНО: Получаем
+  onDeleteTask, 
   onNavigateToPage,
   onAddVocabularyItem,
   onUpdateVocabularyItem,
@@ -62,14 +62,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
   onUpdateSharedFiles,
   onUpdateSharedInstruction,
   onAddTextbook,
+  onSelectTextbook, 
   currentPage,
   onPageChange,
-  tool,
-  setTool,
-  color,
-  setColor,
-  annotations,
-  setAnnotations,
+  onUpdateSharedAnnotations, 
 }) => {
   const WORKSPACE_TABS: { id: WorkspaceTab; label: string; icon: string }[] = [
     { id: 'tasks', label: 'Задания', icon: '📝' },
@@ -77,9 +73,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
     { id: 'dictionary', label: 'Словарь', icon: '📚' },
   ];
   
-  // Локальное состояние для учебника
-  const [selectedTextbook, setSelectedTextbook] = useState<TextbookFile | null>(null);
+  const selectedTextbook = 
+    sharedData?.textbooks.find(tb => tb.name === sharedData.selectedTextbookName) || null;
+    
   const [numPages, setNumPages] = useState(0);
+
+  const [tool, setTool] = useState<Tool>('pen');
+  const [color, setColor] = useState('#000000'); 
 
   return (
     <main className="flex-grow flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
@@ -134,10 +134,12 @@ const Workspace: React.FC<WorkspaceProps> = ({
             <div className="p-4 bg-gray-50 dark:bg-gray-900">
               <Tasks
                 tasks={tasks}
+                // ИСПРАВЛЕНО: Добавляем || {} для защиты от undefined
+                userAnswers={userAnswers || {}} 
                 onAnswerChange={onAnswerChange}
                 onCompleteTask={onCompleteTask}
                 onTaskItemTextChange={onTaskItemTextChange}
-                onDeleteTask={onDeleteTask} // ИСПРАВЛЕНО: Передаем
+                onDeleteTask={onDeleteTask} 
               />
             </div>
           </div>
@@ -146,8 +148,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
         {activeTab === 'textbook' && (
           <Textbook
             textbooks={sharedData?.textbooks as TextbookFile[] || []}
-            selectedTextbook={selectedTextbook}
-            setSelectedTextbook={setSelectedTextbook}
+            selectedTextbook={selectedTextbook} 
+            onSelectTextbook={onSelectTextbook} 
             onAddTextbook={onAddTextbook}
             numPages={numPages}
             setNumPages={setNumPages}
@@ -157,8 +159,8 @@ const Workspace: React.FC<WorkspaceProps> = ({
             setTool={setTool}
             color={color}
             setColor={setColor}
-            annotations={annotations}
-            setAnnotations={setAnnotations}
+            annotations={sharedData?.annotations || {}}
+            onUpdateAnnotations={onUpdateSharedAnnotations}
           />
         )}
 

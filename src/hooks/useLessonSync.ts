@@ -1,8 +1,8 @@
 // src/hooks/useLessonSync.ts
 import { useState, useEffect } from 'react';
-import { doc, onSnapshot, updateDoc, addDoc, collection, query, where, orderBy, getDocs, getDoc } from 'firebase/firestore';
+import { doc, onSnapshot, updateDoc, addDoc, collection, query, where, orderBy, getDocs, getDoc, setDoc } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
-import type { VocabularyItem, Message, Task, Lesson } from '../types';
+import type { VocabularyItem, Message, Task, Lesson, UserAnswersStore, AnnotationStore } from '../types';
 
 interface SharedData {
   textbooks: Array<{ name: string; url: string }>;
@@ -10,25 +10,29 @@ interface SharedData {
   currentPage: number;
   files: Array<{ name: string; url: string }>;
   instruction: string;
+  selectedTextbookName?: string | null; 
+  annotations?: AnnotationStore; 
 }
 
 export const useLessonSync = (lessonId?: string, pairId?: string) => {
   const [lessonData, setLessonData] = useState<Lesson | null>(null);
   const [sharedData, setSharedData] = useState<SharedData | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [userAnswers, setUserAnswers] = useState<UserAnswersStore>({});
+  
+  const userId = auth.currentUser?.uid;
 
   // Загружаем данные урока
   useEffect(() => {
     if (!lessonId) return;
-
     const unsubscribe = onSnapshot(doc(db, 'lessons', lessonId), (doc) => {
       if (doc.exists()) {
         setLessonData({ id: doc.id, ...doc.data() } as Lesson);
       }
     });
-
     return () => unsubscribe();
   }, [lessonId]);
+
 
   // Синхронизация общих данных пары
   useEffect(() => {
@@ -46,7 +50,9 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
               vocabulary: [],
               currentPage: 1,
               files: [],
-              instruction: ''
+              instruction: '',
+              selectedTextbookName: null,
+              annotations: {} 
             });
           }
         });
@@ -69,18 +75,22 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const msgs: Message[] = [];
       snapshot.forEach((doc) => {
-        const data = doc.data();
-        msgs.push({
+        
+        // ИСПРАВЛЕНО: Вот здесь была ошибка.
+        // Переменная 'data' не была определена.
+        const data = doc.data(); 
+        
+         msgs.push({
           id: doc.id,
-          text: data.text,
-          timestamp: new Date(data.timestamp.toDate()).toLocaleTimeString([], { 
+          text: data.text, // Теперь 'data' определена
+          timestamp: new Date(data.timestamp.toDate()).toLocaleTimeString([], { // Теперь 'data' определена
             hour: '2-digit', 
             minute: '2-digit' 
           }),
           user: {
-            id: data.userId,
-            name: data.userName,
-            avatar: `https://i.pravatar.cc/150?u=${data.userId}`
+            id: data.userId, // Теперь 'data' определена
+            name: data.userName, // Теперь 'data' определена
+            avatar: `https://i.pravatar.cc/150?u=${data.userId}` // Теперь 'data' определена
           }
         });
       });
@@ -90,17 +100,39 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     return () => unsubscribe();
   }, [lessonId]);
 
+
+  // Синхронизация ответов ТЕКУЩЕГО пользователя
+  useEffect(() => {
+    if (!lessonId || !userId) {
+      setUserAnswers({}); 
+      return;
+    }
+    const docId = `${lessonId}_${userId}`;
+    const docRef = doc(db, 'lessonUserAnswers', docId);
+
+    const unsubscribe = onSnapshot(docRef, (doc) => {
+      if (doc.exists()) {
+        setUserAnswers(doc.data().answers || {});
+      } else {
+        setUserAnswers({});
+      }
+    });
+
+    return () => unsubscribe();
+  }, [lessonId, userId]);
+
+  // Обновление общих данных пары
   const updatePairData = async (updates: Partial<SharedData>) => {
-    if (!pairId) return;
+    if (!pairId || !sharedData) return; 
 
     const q = query(collection(db, 'pairs'), where('pairId', '==', pairId));
     const snapshot = await getDocs(q);
     
     if (!snapshot.empty) {
       const docRef = doc(db, 'pairs', snapshot.docs[0].id);
-      await updateDoc(docRef, {
+      await setDoc(docRef, {
         'sharedData': { ...sharedData, ...updates }
-      });
+      }, { merge: true });
     }
   };
 
@@ -115,6 +147,19 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
       completedTasksCount: completedCount,
       updatedAt: new Date()
     });
+  };
+
+  const updateUserAnswers = async (newAnswers: UserAnswersStore) => {
+    if (!lessonId || !userId) return;
+    
+    const docId = `${lessonId}_${userId}`;
+    const docRef = doc(db, 'lessonUserAnswers', docId);
+    
+    try {
+      await setDoc(docRef, { answers: newAnswers }, { merge: true });
+    } catch (error) {
+      console.error("Failed to save user answers:", error);
+    }
   };
 
   const updateSharedFiles = (files: Array<{ name: string; url: string }>) => {
@@ -137,6 +182,14 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     updatePairData({ currentPage });
   };
 
+  const updateSharedSelectedTextbook = (name: string | null) => {
+    updatePairData({ selectedTextbookName: name });
+  };
+  
+  const updateSharedAnnotations = (annotations: AnnotationStore) => {
+    updatePairData({ annotations });
+  };
+
   const sendMessage = async (text: string, userName: string) => {
     if (!lessonId) return;
 
@@ -153,12 +206,16 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     lessonData,
     sharedData,
     messages,
+    userAnswers, 
     updateSharedFiles,
     updateSharedInstruction,
     updateSharedVocabulary,
     updateSharedTextbooks,
     updateSharedCurrentPage,
+    updateSharedSelectedTextbook, 
     updateLessonTasks,
+    updateUserAnswers,
+    updateSharedAnnotations, 
     sendMessage
   };
 };

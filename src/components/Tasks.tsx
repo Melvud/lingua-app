@@ -1,24 +1,26 @@
 // src/components/Tasks.tsx
 import React, { useState } from 'react';
-import type { Task, TaskItem, TaskItemPart } from '../types';
-// ИСПРАВЛЕНО: Импортируем иконки
+// ИСПРАВЛЕНО: Добавлен тип UserAnswersStore
+import type { Task, TaskItem, TaskItemPart, UserAnswersStore } from '../types';
 import { CheckCircleIcon, PenIcon, TrashIcon } from './Icons';
 
 interface TasksProps {
   tasks: Task[];
+  userAnswers: UserAnswersStore; // ИСПРАВЛЕНО: Добавлены ответы пользователя
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
-  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлена функция удаления
+  onDeleteTask: (taskId: string) => void; 
 }
 
 const TaskCard: React.FC<{
   task: Task;
+  userAnswers: UserAnswersStore; // ИСПРАВЛЕНО: Добавлены ответы пользователя
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
-  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлена функция удаления
-}> = ({ task, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
+  onDeleteTask: (taskId: string) => void; 
+}> = ({ task, userAnswers, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const isCompleted = task.status === 'completed';
 
@@ -76,11 +78,13 @@ const TaskCard: React.FC<{
     // Задание с переводом
     if (item.type === 'translate') {
       const russianText = item.textParts[0]?.text || '';
+      // ИСПРАВЛЕНО: Значение берется из userAnswers
+      const userAnswer = userAnswers[task.id]?.[index]?.userAnswer || '';
       return (
         <div className="space-y-2">
           <p className="text-gray-800 dark:text-gray-200 font-medium">{russianText}</p>
           <textarea
-            value={item.userAnswer || ''}
+            value={userAnswer}
             onChange={(e) => onAnswerChange(task.id, index, e.target.value)}
             disabled={isCompleted}
             placeholder="Ваш перевод на испанском..."
@@ -99,11 +103,13 @@ const TaskCard: React.FC<{
           {item.textParts.map((part, partIndex) => {
             if (part.isAnswer) {
               const currentAnswerIndex = answerIndex++;
+              // ИСПРАВЛЕНО: Значение берется из userAnswers
+              const userAnswer = userAnswers[task.id]?.[index]?.userAnswers?.[currentAnswerIndex] || '';
               return (
                 <input
                   key={partIndex}
                   type="text"
-                  value={item.userAnswers?.[currentAnswerIndex] || ''}
+                  value={userAnswer}
                   onChange={(e) => onAnswerChange(task.id, index, e.target.value, currentAnswerIndex)}
                   disabled={isCompleted}
                   placeholder="..."
@@ -166,7 +172,6 @@ const TaskCard: React.FC<{
       </div>
 
       {task.type !== 'oral' && (
-        // ИСПРАВЛЕНО: Добавлены кнопки "Удалить" и "Завершить"
         <div className="mt-4 flex justify-end items-center gap-2">
           <button
             onClick={handleDelete}
@@ -196,7 +201,7 @@ const TaskCard: React.FC<{
   );
 };
 
-const Tasks: React.FC<TasksProps> = ({ tasks, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
+const Tasks: React.FC<TasksProps> = ({ tasks, userAnswers, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
   const writtenTasks = tasks.filter((t) => t.type === 'written');
   const completedCount = writtenTasks.filter((t) => t.status === 'completed').length;
 
@@ -222,10 +227,11 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAnswerChange, onCompleteTask, on
           <TaskCard
             key={task.id}
             task={task}
+            userAnswers={userAnswers} // ИСПРАВЛЕНО: Передаем ответы
             onAnswerChange={onAnswerChange}
             onCompleteTask={onCompleteTask}
             onTaskItemTextChange={onTaskItemTextChange}
-            onDeleteTask={onDeleteTask} // ИСПРАВЛЕНО: Передаем функцию
+            onDeleteTask={onDeleteTask}
           />
         ))}
         {tasks.length === 0 && (

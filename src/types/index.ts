@@ -1,3 +1,4 @@
+// src/types/index.ts
 export interface User {
   id: string;
   name: string;
@@ -26,8 +27,6 @@ export interface TaskItemPart {
 export interface TaskItem {
   type: 'fill-in-the-blank' | 'translate' | 'plain-text';
   textParts: TaskItemPart[];
-  userAnswer?: string; // Для translate
-  userAnswers?: string[]; // Для fill-in-the-blank (массив ответов для каждого пропуска)
 }
 
 export interface Task {
@@ -40,6 +39,7 @@ export interface Task {
   exerciseNumber?: string;
 }
 
+// ИСПРАВЛЕНО: Эти типы снова нужны для PDF-аннотаций
 export type Tool = 'pen' | 'highlighter' | 'eraser';
 
 export interface AnnotationPoint {
@@ -53,8 +53,15 @@ export interface Annotation {
   points: AnnotationPoint[];
 }
 
+// ИСПРАВЛЕНО: Добавлен тип для хранения всех аннотаций
+// (Ключ - номер страницы, значение - массив аннотаций)
+export type AnnotationStore = {
+  [pageNumber: number]: Annotation[];
+};
+
+
 export interface TextbookFile {
-    file: File;
+    name: string; 
     url: string; 
 }
 
@@ -70,6 +77,16 @@ export interface Lesson {
   totalTasksCount: number;
 }
 
+export type UserAnswersStore = { 
+  [taskId: string]: { 
+    [itemIndex: number]: { 
+      userAnswer?: string; 
+      userAnswers?: string[] 
+    } 
+  } 
+};
+
+// Этот тип больше не используется в логике ответов
 export interface UserTaskAnswer {
   id: string; // ID задачи (task.id)
   status: 'pending' | 'completed';
