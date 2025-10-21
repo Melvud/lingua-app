@@ -7,7 +7,7 @@ import {
   signOut,
   onAuthStateChanged
 } from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { doc, setDoc, getDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
 
 interface UserProfile {
@@ -15,6 +15,7 @@ interface UserProfile {
   email: string;
   nickname: string;
   partnerId?: string;
+  pairId?: string;
   createdAt: Date;
 }
 
@@ -71,25 +72,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
-      setUserProfile(docSnap.data() as UserProfile);
+      const data = docSnap.data();
+      setUserProfile({
+        ...data,
+        createdAt: data.createdAt?.toDate() || new Date()
+      } as UserProfile);
     }
   };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      console.log('🔐 Auth state changed:', user?.uid);
       setCurrentUser(user);
       
       if (user) {
-        await updateUserProfile();
+        // Real-time слушатель профиля пользователя
+        const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (doc) => {
+          if (doc.exists()) {
+            const data = doc.data();
+            setUserProfile({
+              ...data,
+              createdAt: data.createdAt?.toDate() || new Date()
+            } as UserProfile);
+          }
+          setLoading(false);
+        });
+
+        return () => unsubscribeProfile();
       } else {
         setUserProfile(null);
+        setLoading(false);
       }
-      
-      setLoading(false);
     });
 
     return unsubscribe;
-  }, [currentUser?.uid]);
+  }, []);
 
   const value = {
     currentUser,
@@ -103,7 +120,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 };

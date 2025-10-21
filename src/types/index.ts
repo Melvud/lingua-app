@@ -57,3 +57,15 @@ export interface TextbookFile {
     file: File;
     url: string; 
 }
+
+export interface Lesson {
+  id: string;
+  pairId: string;
+  name: string;
+  createdAt: Date;
+  updatedAt: Date;
+  createdBy: string;
+  tasks: Task[];
+  completedTasksCount: number;
+  totalTasksCount: number;
+}

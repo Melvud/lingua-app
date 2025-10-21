@@ -12,9 +12,10 @@ interface SidebarProps {
   onSendMessage: (text: string) => void;
   activeTab: SidebarTab;
   setActiveTab: (tab: SidebarTab) => void;
+  pairId?: string;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ messages, onSendMessage, activeTab, setActiveTab }) => {
+const Sidebar: React.FC<SidebarProps> = ({ messages, onSendMessage, activeTab, setActiveTab, pairId }) => {
   const SIDEBAR_TABS: { id: SidebarTab, label: string, icon: React.ReactNode }[] = [
     { id: 'video', label: 'Звонок', icon: <VideoIcon className="w-5 h-5"/> },
     { id: 'chat', label: 'Чат', icon: <ChatIcon className="w-5 h-5"/> },
@@ -36,11 +37,9 @@ const Sidebar: React.FC<SidebarProps> = ({ messages, onSendMessage, activeTab, s
         </nav>
       </div>
       <div className="flex-grow min-h-0 pt-2 relative">
-        {/* Видео всегда рендерится, но скрывается через CSS */}
         <div className={`absolute inset-0 ${activeTab === 'video' ? 'block' : 'hidden'}`}>
-          <JitsiMeet />
+          <JitsiMeet roomName={pairId || 'default-room'} />
         </div>
-        {/* Чат всегда рендерится, но скрывается через CSS */}
         <div className={`absolute inset-0 ${activeTab === 'chat' ? 'block' : 'hidden'}`}>
           <ChatComponent messages={messages} onSendMessage={onSendMessage} />
         </div>
