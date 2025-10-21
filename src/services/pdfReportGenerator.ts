@@ -1,141 +1,440 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+/**
+ * Современный, структурированный PDF-отчёт на jsPDF.
+ * Изменения:
+ *  - Ответы вставляются ВНУТРЬ предложения и выделяются ТОЛЬКО цветом (без плашек/карточек).
+ *  - Никаких тире/стрелок в обычных заданиях — сплошной текст в исходном порядке.
+ *  - Переводы — таблицей: слева исходник, справа перевод.
+ *  - Шрифт Arimo подключается из src/utils/fonts.ts (TTF data:URL).
+ */
+
 import type { Task } from '../types';
+import { FONT_DATA_URL } from '../utils/fonts';
 
 declare const window: any;
 
-export const generatePdfReport = (tasks: Task[]): void => {
-    console.log('📄 ========== PDF GENERATION START ==========');
-    console.log('📋 Received tasks:', tasks);
-    console.log('📋 Tasks count:', tasks.length);
-    
-    try {
-        // Шаг 1: Получаем jsPDF
-        console.log('Step 1: Getting jsPDF constructor...');
-        let jsPDF: any = null;
-        
-        if (window.jspdf && window.jspdf.jsPDF) {
-            console.log('✅ Found at window.jspdf.jsPDF');
-            jsPDF = window.jspdf.jsPDF;
-        } else if (window.jsPDF) {
-            console.log('✅ Found at window.jsPDF');
-            jsPDF = window.jsPDF;
-        } else {
-            console.error('❌ jsPDF not found anywhere!');
-            console.log('Available window properties:', Object.keys(window).filter(k => k.toLowerCase().includes('pdf')));
-            throw new Error("jsPDF библиотека не найдена");
-        }
+/* =========================
+ *  ШРИФТЫ
+ * ========================= */
 
-        // Шаг 2: Создаем документ
-        console.log('Step 2: Creating PDF document...');
-        const doc = new jsPDF();
-        console.log('✅ Document created:', doc);
-        
-        // Шаг 3: Проверяем autoTable
-        console.log('Step 3: Checking autoTable...');
-        console.log('doc.autoTable type:', typeof doc.autoTable);
-        console.log('doc.autoTable:', doc.autoTable);
-        
-        if (typeof doc.autoTable !== 'function') {
-            console.error('❌ autoTable is not a function!');
-            console.log('Available doc methods:', Object.keys(doc).filter(k => typeof doc[k] === 'function'));
-            throw new Error("autoTable plugin не найден");
-        }
-        console.log('✅ autoTable is available');
+function getJsPDFCtor(): any {
+  const ctor =
+    (window && window.jspdf && window.jspdf.jsPDF) ||
+    (window && window.jsPDF);
+  if (!ctor) {
+    throw new Error(
+      'jsPDF не найден. Убедитесь, что UMD-скрипт jsPDF подключён до React (index.html).'
+    );
+  }
+  return ctor;
+}
 
-        // Шаг 4: Добавляем заголовок (БЕЗ КАСТОМНОГО ШРИФТА)
-        console.log('Step 4: Adding header...');
-        doc.setFont('helvetica'); // Используем стандартный шрифт
-        doc.setFontSize(18);
-        doc.text('Отчет о выполненных заданиях', 105, 20, { align: 'center' });
-        doc.setFontSize(12);
-        doc.text('Студент: Рафаэль', 14, 35);
-        doc.text(`Дата: ${new Date().toLocaleDateString('ru-RU')}`, 14, 42);
-        console.log('✅ Header added');
+function extractTtfBase64(dataUrl: string): string {
+  if (!dataUrl.startsWith('data:')) {
+    throw new Error('FONT_DATA_URL должен быть data:URL с TTF (data:...;base64,...)');
+  }
+  const okMime =
+    dataUrl.startsWith('data:font/ttf') ||
+    dataUrl.startsWith('data:application/x-font-ttf') ||
+    dataUrl.startsWith('data:application/font-sfnt') ||
+    dataUrl.startsWith('data:application/octet-stream');
+  if (!okMime) {
+    throw new Error('В FONT_DATA_URL обнаружен не TTF. Ожидается TTF base64.');
+  }
+  const marker = 'base64,';
+  const i = dataUrl.indexOf(marker);
+  if (i === -1) throw new Error('FONT_DATA_URL должен содержать сегмент ";base64,".');
+  return dataUrl.slice(i + marker.length);
+}
 
-        // Шаг 5: Подготовка данных (УПРОЩЕННАЯ)
-        console.log('Step 5: Preparing table data...');
-        const tableData: string[][] = [];
-        
-        tasks.forEach((task, taskIdx) => {
-            console.log(`Processing task ${taskIdx + 1}/${tasks.length}:`, task.instruction);
-            
-            task.items.forEach((item, itemIdx) => {
-                console.log(`  Processing item ${itemIdx + 1}:`, item.type);
-                
-                let taskTitle = task.instruction || 'Без названия';
-                let itemContent = 'Нет содержимого';
-                let userAnswer = 'Нет ответа';
-                
-                // Упрощенная обработка
-                try {
-                    if (item.type === 'fill-in-the-blank') {
-                        const text = item.textParts?.map(p => p.text || '').join('') || '';
-                        itemContent = text.substring(0, 100); // Ограничиваем длину
-                        const answers = item.userAnswers?.filter(a => a?.trim()).join(', ');
-                        userAnswer = answers || 'Нет ответа';
-                    } else if (item.type === 'translate') {
-                        itemContent = item.textParts?.[0]?.text?.substring(0, 100) || '';
-                        userAnswer = item.userAnswer?.substring(0, 100) || 'Нет ответа';
-                    }
-                } catch (err) {
-                    console.error('Error processing item:', err);
-                    itemContent = 'Ошибка обработки';
-                }
-                
-                // Добавляем в таблицу
-                const row = [
-                    itemIdx === 0 ? taskTitle : '',
-                    itemContent,
-                    userAnswer
-                ];
-                
-                console.log(`  Adding row:`, row);
-                tableData.push(row);
-            });
-        });
+function registerArimoFont(doc: any): void {
+  const arimoB64 = extractTtfBase64(FONT_DATA_URL);
+  (doc as any).addFileToVFS('Arimo-Regular.ttf', arimoB64);
+  (doc as any).addFont('Arimo-Regular.ttf', 'Arimo', 'normal');
+}
 
-        console.log('📊 Total table rows:', tableData.length);
-        console.log('📊 Table data sample:', tableData.slice(0, 2));
+/* =========================
+ *  УТИЛИТЫ ВЁРСТКИ
+ * ========================= */
 
-        // Шаг 6: Создаем таблицу (МИНИМАЛЬНЫЕ настройки)
-        console.log('Step 6: Creating table...');
-        
-        try {
-            doc.autoTable({
-                startY: 55,
-                head: [['Задание', 'Содержание', 'Ответ']],
-                body: tableData,
-                theme: 'grid',
-                styles: {
-                    font: 'helvetica',
-                    fontSize: 10,
-                    cellPadding: 3
-                },
-                headStyles: {
-                    fillColor: [41, 128, 185]
-                }
-            });
-            console.log('✅ Table created successfully');
-        } catch (tableError) {
-            console.error('❌ Error creating table:', tableError);
-            throw new Error(`Ошибка создания таблицы: ${tableError instanceof Error ? tableError.message : 'Unknown'}`);
-        }
-
-        // Шаг 7: Сохраняем файл
-        console.log('Step 7: Saving PDF...');
-        const filename = `отчет-${Date.now()}.pdf`;
-        console.log('Filename:', filename);
-        
-        doc.save(filename);
-        console.log('✅ PDF saved successfully');
-        console.log('📄 ========== PDF GENERATION END ==========');
-        
-    } catch (error) {
-        console.error('❌ ========== PDF GENERATION FAILED ==========');
-        console.error('Error type:', error instanceof Error ? error.constructor.name : typeof error);
-        console.error('Error message:', error instanceof Error ? error.message : String(error));
-        console.error('Error stack:', error instanceof Error ? error.stack : 'No stack');
-        
-        // Пробрасываем ошибку дальше
-        throw error;
-    }
+type RenderContext = {
+  doc: any;
+  pageWidth: number;
+  pageHeight: number;
+  margin: number;
+  contentWidth: number;
+  cursorY: number;
+  baseFontSize: number;
+  lineHeight: number;
 };
+
+function letterIndex(n: number): string {
+  return String.fromCharCode('A'.charCodeAt(0) + n);
+}
+
+function ensurePageSpace(ctx: RenderContext, needed: number) {
+  if (ctx.cursorY + needed > ctx.pageHeight - ctx.margin) {
+    ctx.doc.addPage();
+    ctx.doc.setFont('Arimo', 'normal');
+    ctx.cursorY = renderHeader(ctx.doc, ctx.margin);
+  }
+}
+
+function wrapText(doc: any, text: string, maxWidth: number, lineHeight: number) {
+  const lines = doc.splitTextToSize(text, maxWidth) as string[];
+  return { lines, height: lines.length * lineHeight };
+}
+
+function drawLines(doc: any, lines: string[], x: number, y: number, lineHeight: number) {
+  lines.forEach((line: string, i: number) => doc.text(line, x, y + i * lineHeight));
+  return y + lines.length * lineHeight;
+}
+
+/**
+ * Рисуем предложение с "встроенными" ответами.
+ * parts: [{ text, isAnswer? }...], ответы берём из item.userAnswers / userAnswer.
+ * Выделение ответа: ТОЛЬКО ЦВЕТОМ (без фона/рамок/капса), чтобы ничего не перекрывало.
+ * Реализована пословная отрисовка с ручным переносом по ширине.
+ */
+function drawSentenceWithInlineAnswers(
+  ctx: RenderContext,
+  parts: Array<{ text: string; isAnswer?: boolean }>,
+  answersSource: { userAnswers?: string[]; userAnswer?: string },
+  x: number,
+  y: number
+) {
+  const { doc, contentWidth, lineHeight, baseFontSize } = ctx;
+
+  // Токены текста (слова и места ответов)
+  let ansIdx = 0;
+  const tokens: Array<{ text: string; isAnswer?: boolean }> = [];
+  const answers = answersSource.userAnswers ?? (
+    typeof answersSource.userAnswer === 'string' && answersSource.userAnswer.length
+      ? [answersSource.userAnswer]
+      : []
+  );
+
+  parts.forEach((p) => {
+    if (p?.isAnswer) {
+      const a = (answers[ansIdx] ?? '_____'); // показываем как есть
+      ansIdx++;
+      tokens.push({ text: a.length ? a : '_____', isAnswer: true });
+    } else if (p?.text) {
+      const words = p.text.split(/(\s+)/).filter(Boolean);
+      words.forEach((w) => tokens.push({ text: w }));
+    }
+  });
+
+  // Ручной перенос
+  let cx = x;
+  let cy = y;
+  const maxX = x + contentWidth;
+
+  tokens.forEach((t) => {
+    const isAns = !!t.isAnswer;
+    const text = t.text;
+
+    // одинаковый размер шрифта для текста и ответа
+    const fs = baseFontSize;
+    doc.setFontSize(fs);
+
+    const tw = doc.getTextWidth(text);
+
+    // перенос строки при нехватке места (для слов, а не пустых пробелов)
+    if (cx + tw > maxX && text.trim().length > 0) {
+      cx = x;
+      cy += lineHeight;
+    }
+
+    if (isAns) {
+      // только цвет — ничего не перекрывает
+      doc.setTextColor(14, 53, 120); // спокойный синий
+      doc.text(text, cx, cy);
+      doc.setTextColor(0, 0, 0);
+      cx += tw;
+    } else {
+      doc.text(text, cx, cy);
+      cx += tw;
+    }
+  });
+
+  return cy + lineHeight;
+}
+
+/* =========================
+ *  ХЕДЕР И НУМЕРАЦИЯ
+ * ========================= */
+
+function renderHeader(doc: any, margin: number): number {
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const barH = 16;
+
+  doc.setFillColor(242, 244, 248);
+  doc.setDrawColor(225, 229, 235);
+  doc.roundedRect(margin, margin, pageWidth - margin * 2, barH, 3, 3, 'FD');
+
+  const titleX = margin + 6;
+  const titleY = margin + 5 + 6;
+  doc.setFont('Arimo', 'normal');
+  doc.setFontSize(16);
+  doc.text('Итоговый отчёт по заданиям', titleX, titleY);
+
+  doc.setFontSize(10);
+  doc.setTextColor(90, 90, 90);
+  const dateStr = new Date().toLocaleString();
+  doc.text(dateStr, pageWidth - margin - 6, titleY, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+
+  return margin + barH + 6;
+}
+
+function addPageNumbers(doc: any, margin: number): void {
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    const footer = `Стр. ${i} / ${total}`;
+    const pageWidth = doc.internal.pageSize.getWidth();
+    doc.text(footer, pageWidth - margin, doc.internal.pageSize.getHeight() - 6, {
+      align: 'right',
+    });
+    doc.setTextColor(0, 0, 0);
+  }
+}
+
+/* =========================
+ *  ОТРИСОВКА ЗАДАНИЙ
+ * ========================= */
+
+function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
+  const { doc, contentWidth, margin, lineHeight } = ctx;
+
+  const padX = 8;
+  const padY = 7;
+  const boxX = margin;
+  let boxY = ctx.cursorY;
+  const boxW = contentWidth;
+
+  // Заголовок
+  const title = `${index + 1}. ${task.instruction || 'Задание'}`;
+  doc.setFontSize(14);
+  const titleMeasure = wrapText(doc, title, boxW - padX * 2, lineHeight);
+  let innerHeight = padY + titleMeasure.height + 4;
+
+  // Мета
+  if (task.pageNumber || task.exerciseNumber) {
+    doc.setFontSize(10);
+    const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
+    const metaMeasure = wrapText(doc, meta, boxW - padX * 2, lineHeight - 1);
+    innerHeight += metaMeasure.height + 2;
+  }
+
+  // Приблизительная высота для страховки
+  const estPerItem = lineHeight * 2.2;
+  innerHeight += (task.items?.length || 0) * estPerItem;
+  ensurePageSpace(ctx, innerHeight + padY);
+
+  // Карточка
+  boxY = ctx.cursorY;
+  doc.setFillColor(247, 249, 252);
+  doc.setDrawColor(224, 229, 236);
+  doc.roundedRect(boxX, boxY, boxW, Math.max(innerHeight + padY, 22), 4, 4, 'FD');
+  doc.setFillColor(66, 133, 244);
+  doc.roundedRect(boxX, boxY, 3, Math.max(innerHeight + padY, 22), 2, 2, 'F');
+
+  // Контент
+  let y = boxY + padY;
+
+  doc.setFontSize(14);
+  y = drawLines(doc, titleMeasure.lines, boxX + padX, y, lineHeight);
+
+  if (task.pageNumber || task.exerciseNumber) {
+    doc.setFontSize(10);
+    doc.setTextColor(95, 99, 104);
+    const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
+    const metaMeasure = wrapText(doc, meta, boxW - padX * 2, lineHeight - 1);
+    y = drawLines(doc, metaMeasure.lines, boxX + padX, y, lineHeight - 1) + 2;
+    doc.setTextColor(0, 0, 0);
+  }
+
+  // Разделитель
+  doc.setDrawColor(230, 235, 242);
+  doc.line(boxX + padX, y, boxX + boxW - padX, y);
+  y += 4;
+
+  // Пункты: буква + предложение с ответами внутри (без тире/стрелок)
+  doc.setFontSize(ctx.baseFontSize);
+  const items = task.items || [];
+  items.forEach((item, i) => {
+    ensurePageSpace(ctx, lineHeight * 3.5);
+
+    const label = `${letterIndex(i)} — `;
+    const labelW = doc.getTextWidth(label);
+
+    doc.setTextColor(80, 80, 80);
+    doc.text(label, boxX + padX, y);
+    doc.setTextColor(0, 0, 0);
+
+    y = drawSentenceWithInlineAnswers(
+      ctx,
+      (item as any).textParts || [],
+      (item as any),
+      boxX + padX + labelW,
+      y
+    );
+
+    y += 2.5;
+  });
+
+  ctx.cursorY = y + 6;
+}
+
+function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
+  const { doc, contentWidth, margin, lineHeight, baseFontSize } = ctx;
+
+  const padX = 8;
+  const padY = 7;
+  const boxX = margin;
+  let boxY = ctx.cursorY;
+  const boxW = contentWidth;
+
+  // Заголовок
+  const title = `${index + 1}. ${task.instruction || 'Задание'}`;
+  doc.setFontSize(14);
+  const titleMeasure = wrapText(doc, title, boxW - padX * 2, lineHeight);
+  let innerHeight = padY + titleMeasure.height + 4;
+
+  // Мета
+  if (task.pageNumber || task.exerciseNumber) {
+    doc.setFontSize(10);
+    const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
+    const metaMeasure = wrapText(doc, meta, boxW - padX * 2, lineHeight - 1);
+    innerHeight += metaMeasure.height + 2;
+  }
+
+  // Подготовка строк таблицы
+  const rows = (task.items || []).map((item: any) => {
+    const source = (item.textParts || []).map((p: any) => p?.text ?? '').join('').replace(/\s+/g, ' ').trim();
+    const target = (item.userAnswer || '').trim();
+    return { source, target };
+  });
+
+  const col1W = Math.floor(boxW * 0.48);
+  const col2W = boxW - col1W - padX * 2 - 2;
+
+  let rowsHeight = 0;
+  doc.setFontSize(baseFontSize);
+  rows.forEach((r) => {
+    const h1 = wrapText(doc, r.source || '—', col1W, lineHeight).height;
+    const h2 = wrapText(doc, r.target || '—', col2W, lineHeight).height;
+    rowsHeight += Math.max(h1, h2) + 4;
+  });
+
+  innerHeight += rowsHeight + 8;
+  ensurePageSpace(ctx, innerHeight + padY);
+
+  // Карточка
+  boxY = ctx.cursorY;
+  doc.setFillColor(247, 249, 252);
+  doc.setDrawColor(224, 229, 236);
+  doc.roundedRect(boxX, boxY, boxW, innerHeight + padY, 4, 4, 'FD');
+  doc.setFillColor(66, 133, 244);
+  doc.roundedRect(boxX, boxY, 3, innerHeight + padY, 2, 2, 'F');
+
+  // Контент
+  let y = boxY + padY;
+
+  doc.setFontSize(14);
+  y = drawLines(doc, titleMeasure.lines, boxX + padX, y, lineHeight);
+
+  if (task.pageNumber || task.exerciseNumber) {
+    doc.setFontSize(10);
+    doc.setTextColor(95, 99, 104);
+    const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
+    const metaMeasure = wrapText(doc, meta, boxW - padX * 2, lineHeight - 1);
+    y = drawLines(doc, metaMeasure.lines, boxX + padX, y, lineHeight - 1) + 3;
+    doc.setTextColor(0, 0, 0);
+  }
+
+  // Шапка таблицы
+  const headerH = 8;
+  doc.setFillColor(238, 242, 248);
+  doc.setDrawColor(224, 229, 236);
+  doc.roundedRect(boxX + padX, y, boxW - padX * 2, headerH, 2, 2, 'FD');
+
+  doc.setFontSize(11);
+  doc.setTextColor(70, 70, 80);
+  doc.text('Исходный текст', boxX + padX + 3, y + 5.5);
+  doc.text('Перевод', boxX + padX + 3 + col1W + 6, y + 5.5);
+  doc.setTextColor(0, 0, 0);
+
+  y += headerH + 3;
+
+  // Ряды таблицы
+  doc.setFontSize(baseFontSize);
+  rows.forEach((r) => {
+    const left = wrapText(doc, r.source || '—', col1W, lineHeight);
+    const right = wrapText(doc, r.target || '—', col2W, lineHeight);
+    const rowH = Math.max(left.height, right.height) + 2;
+
+    ensurePageSpace(ctx, rowH + 8);
+
+    doc.setFillColor(252, 253, 255);
+    doc.setDrawColor(234, 238, 245);
+    doc.roundedRect(boxX + padX, y, boxW - padX * 2, rowH, 2, 2, 'FD');
+
+    let cy = y + 5;
+    drawLines(doc, left.lines, boxX + padX + 3, cy, lineHeight);
+    drawLines(doc, right.lines, boxX + padX + 3 + col1W + 6, cy, lineHeight);
+
+    y += rowH + 3;
+  });
+
+  ctx.cursorY = y + 6;
+}
+
+/* =========================
+ *  ОСНОВНАЯ ФУНКЦИЯ
+ * ========================= */
+
+export function generatePdfReport(tasks: Task[]): void {
+  const jsPDF = getJsPDFCtor();
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+
+  // Шрифт
+  registerArimoFont(doc);
+  doc.setFont('Arimo', 'normal');
+
+  const margin = 14;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+  const contentWidth = pageWidth - margin * 2;
+
+  const ctx: RenderContext = {
+    doc,
+    pageWidth,
+    pageHeight,
+    margin,
+    contentWidth,
+    cursorY: renderHeader(doc, margin),
+    baseFontSize: 12.5,
+    lineHeight: 6.4
+  };
+
+  const list = (tasks || []).filter(Boolean);
+  list.forEach((task, i) => {
+    const isTranslate =
+      (task as any).type === 'translate' ||
+      (task.items || []).some((it: any) => it?.type === 'translate');
+    if (isTranslate) {
+      renderTranslateTask(ctx, task, i);
+    } else {
+      renderNonTranslateTask(ctx, task, i);
+    }
+  });
+
+  addPageNumbers(doc, margin);
+  doc.save(`report_${new Date().toISOString().slice(0, 10)}.pdf`);
+}
