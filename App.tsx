@@ -1,4 +1,9 @@
+// App.tsx
 import React, { useState, useCallback, useEffect } from 'react';
+import { AuthProvider, useAuth } from './src/contexts/AuthContext';
+import Login from './src/components/Auth/Login';
+import Register from './src/components/Auth/Register';
+import MainScreen from './src/components/MainScreen';
 import Header from './src/components/Header';
 import Sidebar from './src/components/Sidebar';
 import Workspace from './src/components/Workspace';
@@ -21,13 +26,18 @@ interface NotificationState {
 const initialMessages: Message[] = [
   {
     id: `msg-${Date.now()}`,
-    text: '¡Hola Rafael! ¿Listo para empezar la lección de hoy?',
+    text: '¡Hola! ¿Listo para empezar la lección de hoy?',
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     user: USERS.ANNA,
   }
 ];
 
-const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { currentUser, userProfile } = useAuth();
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [inWorkspace, setInWorkspace] = useState(false);
+
+  // Workspace state
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
@@ -287,9 +297,32 @@ const App: React.FC = () => {
     setCurrentPage(page);
   };
 
+  const handleBackToMain = () => {
+    setInWorkspace(false);
+  };
+
+  // Показываем экран входа/регистрации, если пользователь не авторизован
+  if (!currentUser) {
+    return authMode === 'login' ? (
+      <Login onSwitchToRegister={() => setAuthMode('register')} />
+    ) : (
+      <Register onSwitchToLogin={() => setAuthMode('login')} />
+    );
+  }
+
+  // Показываем главный экран, если нет партнера или не в рабочей области
+  if (!userProfile?.partnerId || !inWorkspace) {
+    return <MainScreen onEnterWorkspace={() => setInWorkspace(true)} />;
+  }
+
+  // Рабочая область
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-      <Header onGenerateReport={handleGenerateFinalReport} isReportReady={allTasksCompleted} />
+      <Header 
+        onGenerateReport={handleGenerateFinalReport} 
+        isReportReady={allTasksCompleted}
+        onBackToMain={handleBackToMain}
+      />
       
       <div className="fixed top-0 right-0 z-50 p-4 space-y-2">
         {notifications.map((notification) => (
@@ -341,6 +374,14 @@ const App: React.FC = () => {
         />
       </div>
     </div>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 
