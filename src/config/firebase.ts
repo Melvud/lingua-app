@@ -4,12 +4,13 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyAY1GQHWlmitXVaph0AHxpJDNU-9AMmUnk",
+  authDomain: "lingua-website.firebaseapp.com",
+  projectId: "lingua-website",
+  storageBucket: "lingua-website.firebasestorage.app",
+  messagingSenderId: "594125774691",
+  appId: "1:594125774691:web:cca559d4edc3d03e257d56",
+  measurementId: "G-3NCSRRZMSE"
 };
 
 const app = initializeApp(firebaseConfig);
