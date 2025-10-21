@@ -1,8 +1,17 @@
+// src/components/Textbook.tsx
 import React, { useRef, useCallback, useEffect, useState } from 'react';
 import { UploadIcon, PenIcon, EraserIcon, HighlighterIcon, ZoomInIcon, ZoomOutIcon } from './Icons';
 import type { Annotation, Tool, TextbookFile } from '../types';
+import { Document, Page, pdfjs } from 'react-pdf';
 
-declare const window: any;
+// ИСПРАВЛЕНО: Эта строка теперь использует Vite для
+// локальной загрузки воркера из 'node_modules', а не 'cdnjs'.
+// Это решает все конфликты версий.
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
+
 
 interface TextbookProps {
     textbooks: TextbookFile[];
@@ -12,9 +21,7 @@ interface TextbookProps {
     numPages: number;
     setNumPages: (count: number) => void;
     currentPage: number;
-    setCurrentPage: React.Dispatch<React.SetStateAction<number>>;
-    zoom: number;
-    setZoom: React.Dispatch<React.SetStateAction<number>>;
+    setCurrentPage: (page: number) => void;
     tool: Tool;
     setTool: (tool: Tool) => void;
     color: string;
@@ -26,19 +33,20 @@ interface TextbookProps {
 const Textbook: React.FC<TextbookProps> = ({
     textbooks, selectedTextbook, setSelectedTextbook, onAddTextbook,
     numPages, setNumPages, currentPage, setCurrentPage,
-    zoom, setZoom, tool, setTool, color, setColor,
+    tool, setTool, color, setColor,
     annotations, setAnnotations
 }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+    const [zoom, setZoom] = useState(1.5);
     const annotationCanvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
     const getContext = (canvas: HTMLCanvasElement | null) => canvas?.getContext('2d');
     
     useEffect(() => {
         if (selectedTextbook) {
-            const saved = localStorage.getItem(`annotations_${selectedTextbook.file.name}`);
+            const saved = localStorage.getItem(`annotations_${selectedTextbook.name}`);
             if (saved) setAnnotations(JSON.parse(saved));
             else setAnnotations({});
         }
@@ -46,7 +54,7 @@ const Textbook: React.FC<TextbookProps> = ({
 
     useEffect(() => {
         if (selectedTextbook) {
-            localStorage.setItem(`annotations_${selectedTextbook.file.name}`, JSON.stringify(annotations));
+            localStorage.setItem(`annotations_${selectedTextbook.name}`, JSON.stringify(annotations));
         }
     }, [annotations, selectedTextbook]);
 
@@ -56,55 +64,35 @@ const Textbook: React.FC<TextbookProps> = ({
         if (!ctx || !canvas) return;
 
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
         const pageAnnotations = annotations[currentPage] || [];
 
         pageAnnotations.forEach(ann => {
             ctx.beginPath();
             ctx.strokeStyle = ann.color;
-            ctx.lineWidth = ann.tool === 'highlighter' ? 10 : 3;
+            ctx.lineWidth = ann.tool === 'highlighter' ? 10 : (ann.tool === 'eraser' ? 15 : 3);
             ctx.globalAlpha = ann.tool === 'highlighter' ? 0.3 : 1.0;
-            ctx.globalCompositeOperation = 'source-over';
-            ann.points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+            ctx.globalCompositeOperation = ann.tool === 'eraser' ? 'destination-out' : 'source-over';
+            
+            ann.points.forEach((p, i) => {
+                const x = p.x * zoom;
+                const y = p.y * zoom;
+                if (i === 0) {
+                    ctx.moveTo(x, y);
+                } else {
+                    ctx.lineTo(x, y);
+                }
+            });
             ctx.stroke();
         });
         
         ctx.globalCompositeOperation = 'source-over';
         ctx.globalAlpha = 1.0;
-    }, [annotations, currentPage]);
-
-    const renderPage = useCallback(async () => {
-        if (!selectedTextbook || !window.pdfjsLib) return;
-
-        try {
-            const pdf = await window.pdfjsLib.getDocument(selectedTextbook.url).promise;
-            if (pdf.numPages !== numPages) setNumPages(pdf.numPages);
-            
-            const page = await pdf.getPage(currentPage);
-            const viewport = page.getViewport({ scale: zoom });
-            
-            const canvas = canvasRef.current;
-            const annotationCanvas = annotationCanvasRef.current;
-            if (canvas && annotationCanvas) {
-                const context = getContext(canvas);
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                annotationCanvas.height = viewport.height;
-                annotationCanvas.width = viewport.width;
-
-                if (context) {
-                    await page.render({ canvasContext: context, viewport }).promise;
-                    drawAnnotations();
-                }
-            }
-        } catch (error) {
-            console.error("Error rendering PDF:", error);
-        }
-        // Убрана зависимость numPages, чтобы предотвратить цикл перерисовки
-    }, [selectedTextbook, currentPage, zoom, setNumPages, drawAnnotations]);
+    }, [annotations, currentPage, zoom]);
 
     useEffect(() => {
-        renderPage();
-    }, [renderPage]);
+        drawAnnotations();
+    }, [zoom, currentPage, drawAnnotations]);
 
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -112,14 +100,25 @@ const Textbook: React.FC<TextbookProps> = ({
     };
     
     const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+        if (!selectedTextbook) return;
         setIsDrawing(true);
         const { offsetX, offsetY } = e.nativeEvent;
-        const newAnnotation: Annotation = { tool, color, points: [{ x: offsetX, y: offsetY }] };
-        setAnnotations(prev => ({...prev, [currentPage]: [...(prev[currentPage] || []), newAnnotation]}));
+        
+        const newAnnotation: Annotation = { 
+            tool, 
+            color, 
+            points: [{ x: offsetX / zoom, y: offsetY / zoom }]
+        };
+        
+        setAnnotations(prev => ({
+            ...prev, 
+            [currentPage]: [...(prev[currentPage] || []), newAnnotation]
+        }));
     };
 
     const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
-        if (!isDrawing) return;
+        if (!isDrawing || !selectedTextbook) return;
+        
         const canvas = annotationCanvasRef.current;
         const ctx = getContext(canvas);
         if (!ctx || !canvas) return;
@@ -128,8 +127,10 @@ const Textbook: React.FC<TextbookProps> = ({
         const currentAnns = annotations[currentPage];
         if (!currentAnns || currentAnns.length === 0) return;
 
-        const lastAnn = currentAnns[currentAnns.length-1];
-        lastAnn.points.push({ x: offsetX, y: offsetY });
+        const lastAnn = currentAnns[currentAnns.length - 1];
+        
+        const newPoint = { x: offsetX / zoom, y: offsetY / zoom };
+        lastAnn.points.push(newPoint);
         
         ctx.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over';
         ctx.strokeStyle = lastAnn.color;
@@ -138,16 +139,35 @@ const Textbook: React.FC<TextbookProps> = ({
         
         ctx.beginPath();
         const points = lastAnn.points;
-        if(points.length > 1) {
-             ctx.moveTo(points[points.length-2].x, points[points.length-2].y);
-             ctx.lineTo(points[points.length-1].x, points[points.length-1].y);
+        if (points.length > 1) {
+             const prevPoint = points[points.length - 2];
+             ctx.moveTo(prevPoint.x * zoom, prevPoint.y * zoom);
+             ctx.lineTo(newPoint.x * zoom, newPoint.y * zoom);
              ctx.stroke();
         }
     };
     
     const stopDrawing = () => {
+        if (!isDrawing) return;
         setIsDrawing(false);
         setAnnotations(prev => ({...prev}));
+        drawAnnotations();
+    };
+
+    const onDocumentLoadSuccess = ({ numPages: nextNumPages }: { numPages: number }) => {
+        setNumPages(nextNumPages);
+        if(currentPage > nextNumPages) {
+            setCurrentPage(nextNumPages);
+        }
+    };
+
+    const onPageRenderSuccess = () => {
+        const pdfCanvas = annotationCanvasRef.current?.previousElementSibling?.querySelector('canvas');
+        if (pdfCanvas) {
+            const { width, height } = pdfCanvas.getBoundingClientRect();
+            setCanvasSize({ width, height });
+            drawAnnotations();
+        }
     };
     
     const ToolbarButton: React.FC<{
@@ -184,9 +204,9 @@ const Textbook: React.FC<TextbookProps> = ({
     
     const Pagination: React.FC = () => (
         <div className="flex items-center gap-4 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&lt;</button>
-            <span>Стр. {currentPage} из {numPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(numPages, p + 1))} disabled={currentPage === numPages} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&gt;</button>
+            <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&lt;</button>
+            <span>Стр. {currentPage} из {numPages || 0}</span>
+            <button onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))} disabled={currentPage === numPages || numPages === 0} className="px-3 py-1 rounded disabled:opacity-50 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors font-bold">&gt;</button>
         </div>
     );
 
@@ -195,13 +215,13 @@ const Textbook: React.FC<TextbookProps> = ({
             <div className="flex-shrink-0 mb-4 flex items-center justify-between gap-4">
                  <div className="flex-1">
                     <select
-                        value={selectedTextbook?.file.name || ''}
-                        onChange={(e) => setSelectedTextbook(textbooks.find(tb => tb.file.name === e.target.value) || null)}
+                        value={selectedTextbook?.name || ''}
+                        onChange={(e) => setSelectedTextbook(textbooks.find(tb => tb.name === e.target.value) || null)}
                         className="w-full bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg py-2 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         disabled={textbooks.length === 0}
                     >
                         {textbooks.length === 0 && <option>Загрузите учебник</option>}
-                        {textbooks.map(tb => <option key={tb.file.name} value={tb.file.name}>{tb.file.name}</option>)}
+                        {textbooks.map(tb => <option key={tb.name} value={tb.name}>{tb.name}</option>)}
                     </select>
                 </div>
                 <button
@@ -217,11 +237,28 @@ const Textbook: React.FC<TextbookProps> = ({
             {selectedTextbook ? (
                 <>
                     <div className="flex justify-center mb-4"><Toolbar /></div>
-                    <div className="flex-grow my-4 overflow-auto pr-2 flex justify-center bg-gray-200 dark:bg-gray-900 rounded-md">
-                        <div className="relative" style={{ width: canvasRef.current?.width, height: canvasRef.current?.height }}>
-                            <canvas ref={canvasRef} />
+                    
+                    <div className="flex-grow overflow-auto flex justify-center bg-gray-200 dark:bg-gray-900">
+                        <div className="relative" style={{ width: canvasSize.width, height: canvasSize.height }}>
+                            <Document
+                                file={selectedTextbook.url}
+                                onLoadSuccess={onDocumentLoadSuccess}
+                                loading={<p>Загрузка PDF...</p>}
+                                error={`Не удалось загрузить PDF. Убедитесь, что CORS настроен, или файл не поврежден.`}
+                            >
+                                <Page
+                                    pageNumber={currentPage}
+                                    scale={zoom}
+                                    onRenderSuccess={onPageRenderSuccess}
+                                    renderAnnotationLayer={false}
+                                    renderTextLayer={false}
+                                />
+                            </Document>
+                            
                             <canvas 
-                                ref={annotationCanvasRef} 
+                                ref={annotationCanvasRef}
+                                width={canvasSize.width}
+                                height={canvasSize.height}
                                 className="absolute top-0 left-0 cursor-crosshair"
                                 onMouseDown={startDrawing}
                                 onMouseMove={draw}
@@ -230,7 +267,8 @@ const Textbook: React.FC<TextbookProps> = ({
                             />
                         </div>
                     </div>
-                    {numPages > 1 && <div className="flex justify-center mt-auto"><Pagination /></div>}
+                    
+                    {numPages > 1 && <div className="flex justify-center mt-auto pt-4"><Pagination /></div>}
                 </>
             ) : (
                 <div className="flex-grow flex items-center justify-center text-center text-gray-500 dark:text-gray-400">

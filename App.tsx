@@ -15,6 +15,11 @@ import { USERS } from './src/utils/constants';
 import type { Message, Task, Annotation, Tool, TextbookFile, TaskItemPart, VocabularyItem } from './src/types';
 import { generatePdfReport } from './src/services/pdfReportGenerator';
 
+// Импорты для Firebase Storage
+import { storage } from './src/config/firebase';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+
+
 declare const window: any;
 
 type SidebarTab = 'video' | 'chat';
@@ -40,10 +45,11 @@ const WorkspaceContent: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#FF0000');
-  const [zoom, setZoom] = useState(1.5);
   const [annotations, setAnnotations] = useState<{ [key: number]: Annotation[] }>({});
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
   const [pdfLibraryLoaded, setPdfLibraryLoaded] = useState(false);
+  
+  const [isUploading, setIsUploading] = useState(false);
 
   // Используем хук для синхронизации данных урока
   const {
@@ -59,24 +65,46 @@ const WorkspaceContent: React.FC = () => {
     sendMessage
   } = useLessonSync(lessonId, userProfile?.pairId);
 
-  // Загружаем задания из урока
+  // ИСПРАВЛЕНО: Загружаем задания из урока и ОЧИЩАЕМ ответы
   useEffect(() => {
     if (lessonData?.tasks) {
-      setTasks(lessonData.tasks);
+      // При загрузке заданий из Firebase, ОЧИЩАЕМ ответы.
+      // Ответы каждого пользователя - локальны.
+      const tasksWithCleanedAnswers = lessonData.tasks.map(task => ({
+        ...task,
+        status: 'pending', // Сбрасываем статус для всех
+        items: task.items.map(item => {
+          const cleanItem = { ...item };
+          if (item.type === 'fill-in-the-blank') {
+            const answerCount = item.textParts.filter(p => p.isAnswer).length;
+            cleanItem.userAnswers = new Array(answerCount).fill('');
+          } else if (item.type === 'translate') {
+            cleanItem.userAnswer = '';
+          }
+          return cleanItem;
+        })
+      }));
+
+      // Сравниваем, чтобы избежать бесконечного цикла, если кто-то удаляет/добавляет задания
+      const localTaskStructure = JSON.stringify(tasks.map(t => t.id + t.instruction));
+      const remoteTaskStructure = JSON.stringify(tasksWithCleanedAnswers.map(t => t.id + t.instruction));
+
+      if (localTaskStructure !== remoteTaskStructure) {
+        setTasks(tasksWithCleanedAnswers);
+      }
     }
-  }, [lessonData?.tasks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lessonData?.tasks]); // Зависимость 'tasks' убрана намеренно!
 
   const writtenTasks = tasks.filter(t => t.type === 'written');
   const allTasksCompleted = writtenTasks.length > 0 && writtenTasks.every(t => t.status === 'completed');
 
+  // Эффект для настройки библиотек PDF
   useEffect(() => {
     console.log('🚀 Workspace component mounted');
-    
-    if (window.pdfjsLib) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js`;
-      console.log('✅ PDF.js loaded');
-    }
-    
+    // Глобальная настройка pdf.js удалена, т.к. 'Textbook.tsx' и 
+    // 'fileProcessor.ts' настраивают свои воркеры изолированно.
+
     const checkPdfLibrary = () => {
       if (window.jspdf || window.jsPDF) {
         console.log('✅ jsPDF library loaded successfully');
@@ -85,8 +113,8 @@ const WorkspaceContent: React.FC = () => {
         setTimeout(checkPdfLibrary, 500);
       }
     };
-    
     checkPdfLibrary();
+    
   }, []);
 
   const showNotification = (message: string, type: 'success' | 'info' | 'warning' | 'error' = 'info') => {
@@ -111,7 +139,7 @@ const WorkspaceContent: React.FC = () => {
           const answerCount = item.textParts.filter(p => p.isAnswer).length;
           return {
             ...item,
-            userAnswer: undefined,
+            userAnswer: null,
             userAnswers: new Array(answerCount).fill('')
           };
         }
@@ -119,13 +147,13 @@ const WorkspaceContent: React.FC = () => {
           return {
             ...item,
             userAnswer: '',
-            userAnswers: undefined
+            userAnswers: null
           };
         }
         return {
           ...item,
-          userAnswer: undefined,
-          userAnswers: undefined
+          userAnswer: null,
+          userAnswers: null
         };
       })
     }));
@@ -133,7 +161,7 @@ const WorkspaceContent: React.FC = () => {
     const updatedTasks = [...tasks, ...processedTasks];
     setTasks(updatedTasks);
     
-    // Сохраняем задания в урок
+    // ИСПРАВЛЕНО: Сохраняем в БД только СТРУКТУРУ заданий
     updateLessonTasks(updatedTasks);
     
     if (newVocabulary.length > 0) {
@@ -152,53 +180,64 @@ const WorkspaceContent: React.FC = () => {
     }
   };
 
+  // ИСПРАВЛЕНО: Сохраняем ответы ТОЛЬКО локально
   const handleAnswerChange = (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => {
-    setTasks(prevTasks =>
-      prevTasks.map(task => 
-        task.id === taskId 
-          ? { 
-              ...task, 
-              items: task.items.map((item, i) => {
-                if (i !== itemIndex) return item;
-                
-                if (item.type === 'fill-in-the-blank' && answerIndex !== undefined) {
-                  const newAnswers = [...(item.userAnswers || [])];
-                  newAnswers[answerIndex] = answer;
-                  return { ...item, userAnswers: newAnswers };
-                }
-                
-                if (item.type === 'translate') {
-                  return { ...item, userAnswer: answer };
-                }
-                
-                return item;
-              })
-            } 
-          : task
-      )
+    const newTasks = tasks.map(task => 
+      task.id === taskId 
+        ? { 
+            ...task, 
+            items: task.items.map((item, i) => {
+              if (i !== itemIndex) return item;
+              
+              if (item.type === 'fill-in-the-blank' && answerIndex !== undefined) {
+                const newAnswers = [...(item.userAnswers || [])];
+                newAnswers[answerIndex] = answer;
+                return { ...item, userAnswers: newAnswers };
+              }
+              
+              if (item.type === 'translate') {
+                return { ...item, userAnswer: answer };
+              }
+              
+              return item;
+            })
+          } 
+        : task
     );
+    
+    setTasks(newTasks);
+    // updateLessonTasks(newTasks); // ИСПРАВЛЕНО: УДАЛЕНО (не сохраняем ответы в БД)
   };
 
+  // ИСПРАВЛЕНО: Сохраняем ТОЛЬКО локально
   const handleTaskItemTextChange = (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => {
-    setTasks(prevTasks =>
-      prevTasks.map(task => 
-        task.id === taskId 
-          ? { ...task, items: task.items.map((item, i) => i === itemIndex ? { ...item, textParts: newTextParts } : item) } 
-          : task
-      )
+    const newTasks = tasks.map(task => 
+      task.id === taskId 
+        ? { ...task, items: task.items.map((item, i) => i === itemIndex ? { ...item, textParts: newTextParts } : item) } 
+        : task
     );
+    
+    setTasks(newTasks);
+    // updateLessonTasks(newTasks); // ИСПРАВЛЕНО: УДАЛЕНО (не сохраняем ответы в БД)
   };
 
+  // ИСПРАВЛЕНО: Сохраняем статус ТОЛЬКО локально
   const handleCompleteTask = (taskId: string) => {
     const updatedTasks = tasks.map(task =>
       task.id === taskId ? { ...task, status: 'completed' as const } : task
     );
     setTasks(updatedTasks);
-    
-    // НЕ сохраняем локальные ответы в общие данные урока
-    // Каждый пользователь имеет свои ответы
+    // updateLessonTasks(updatedTasks); // ИСПРАВЛЕНО: УДАЛЕНО (не сохраняем статус в БД)
     
     showNotification('Задание выполнено!', 'success');
+  };
+
+  // ИСПРАВЛЕНО: Удаление синхронизируем с БД
+  const handleDeleteTask = (taskId: string) => {
+    const updatedTasks = tasks.filter(task => task.id !== taskId);
+    setTasks(updatedTasks);
+    updateLessonTasks(updatedTasks); // Сохраняем в БД (структура изменилась)
+    showNotification('Задание удалено', 'info');
   };
 
   const handleAddVocabularyItem = (item: Omit<VocabularyItem, 'id'>) => {
@@ -224,39 +263,64 @@ const WorkspaceContent: React.FC = () => {
     showNotification('Слово удалено из словаря', 'info');
   };
 
+  // ИСПРАВЛЕНО: Передаем никнейм в генератор
   const handleGenerateFinalReport = () => {
+    if (!userProfile) {
+      showNotification('Ваш профиль еще не загрузился', 'warning');
+      return;
+    }
     if (!allTasksCompleted) {
       showNotification('Сначала завершите все письменные задания!', 'warning');
       return;
     }
-
     if (!pdfLibraryLoaded) {
       showNotification('PDF библиотека еще загружается. Попробуйте через секунду.', 'warning');
       return;
     }
 
     try {
-      generatePdfReport(writtenTasks);
+      // Передаем локальные 'writtenTasks' (только с ответами этого пользователя) и никнейм
+      generatePdfReport(writtenTasks, userProfile.nickname);
       showNotification('PDF отчет успешно создан и скачан!', 'success');
     } catch (error) {
       showNotification(`Ошибка при генерации PDF: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`, 'error');
     }
   };
 
-  const handleAddTextbook = (file: File) => {
-    const newTextbook = { 
-      file, 
-      url: URL.createObjectURL(file),
-      name: file.name 
-    };
+  const handleAddTextbook = async (file: File) => {
+    if (isUploading) return;
+    if (!lessonId) {
+      showNotification('Ошибка: ID урока не найден', 'error');
+      return;
+    }
     
-    const textbooksData = [
-      ...(sharedData?.textbooks || []),
-      { name: file.name, url: newTextbook.url }
-    ];
-    
-    updateSharedTextbooks(textbooksData);
-    showNotification(`Учебник "${file.name}" загружен!`, 'success');
+    setIsUploading(true);
+    showNotification(`Загрузка учебника "${file.name}"...`, 'info');
+
+    try {
+      const storageRef = ref(storage, `textbooks/${lessonId}/${file.name}`);
+      const snapshot = await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(snapshot.ref);
+      
+      const newTextbook = { 
+        name: file.name, 
+        url: downloadURL 
+      };
+      
+      const textbooksData = [
+        ...(sharedData?.textbooks || []),
+        newTextbook
+      ];
+      
+      updateSharedTextbooks(textbooksData);
+      showNotification(`Учебник "${file.name}" загружен!`, 'success');
+      
+    } catch (error) {
+      console.error("Ошибка при загрузке учебника:", error);
+      showNotification(`Ошибка при загрузке файла: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`, 'error');
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleNavigateToPage = (page: number) => {
@@ -283,7 +347,7 @@ const WorkspaceContent: React.FC = () => {
   return (
     <div className="h-screen w-screen flex flex-col font-sans bg-gray-100 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
       <Header 
-        onGenerateReport={handleGenerateFinalReport} 
+        onGenerateReport={handleGenerateFinalReport} // Вызывается без аргументов
         isReportReady={allTasksCompleted}
         onBackToMain={handleBackToMain}
         lessonName={lessonData?.name}
@@ -309,12 +373,13 @@ const WorkspaceContent: React.FC = () => {
           pairId={userProfile?.pairId}
         />
         <Workspace
-          tasks={tasks}
+          tasks={tasks} // Передаем локальные 'tasks'
           vocabulary={sharedData?.vocabulary || []}
           onGenerateTasks={handleGenerateTasks}
           onAnswerChange={handleAnswerChange}
           onCompleteTask={handleCompleteTask}
           onTaskItemTextChange={handleTaskItemTextChange}
+          onDeleteTask={handleDeleteTask} // Передаем
           onNavigateToPage={handleNavigateToPage}
           onAddVocabularyItem={handleAddVocabularyItem}
           onUpdateVocabularyItem={handleUpdateVocabularyItem}
@@ -327,8 +392,6 @@ const WorkspaceContent: React.FC = () => {
           onAddTextbook={handleAddTextbook}
           currentPage={sharedData?.currentPage || 1}
           onPageChange={handlePageChange}
-          zoom={zoom}
-          setZoom={setZoom}
           tool={tool}
           setTool={setTool}
           color={color}

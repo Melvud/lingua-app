@@ -1,13 +1,15 @@
 // src/components/Tasks.tsx
 import React, { useState } from 'react';
 import type { Task, TaskItem, TaskItemPart } from '../types';
-import { CheckCircleIcon, PenIcon } from './Icons';
+// ИСПРАВЛЕНО: Импортируем иконки
+import { CheckCircleIcon, PenIcon, TrashIcon } from './Icons';
 
 interface TasksProps {
   tasks: Task[];
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
+  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлена функция удаления
 }
 
 const TaskCard: React.FC<{
@@ -15,9 +17,16 @@ const TaskCard: React.FC<{
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
-}> = ({ task, onAnswerChange, onCompleteTask, onTaskItemTextChange }) => {
+  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлена функция удаления
+}> = ({ task, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const isCompleted = task.status === 'completed';
+
+  const handleDelete = () => {
+    if (window.confirm(`Вы уверены, что хотите удалить задание "${task.instruction}"?`)) {
+      onDeleteTask(task.id);
+    }
+  };
 
   const handleTextSave = (itemIndex: number, newText: string) => {
     const placeholder = '[ответ]';
@@ -157,11 +166,20 @@ const TaskCard: React.FC<{
       </div>
 
       {task.type !== 'oral' && (
-        <div className="mt-4 text-right">
+        // ИСПРАВЛЕНО: Добавлены кнопки "Удалить" и "Завершить"
+        <div className="mt-4 flex justify-end items-center gap-2">
+          <button
+            onClick={handleDelete}
+            className="bg-red-100 text-red-700 font-semibold py-2 px-3 rounded-md text-sm hover:bg-red-200 transition-colors flex items-center gap-2"
+            title="Удалить задание"
+          >
+            <TrashIcon className="w-5 h-5" />
+          </button>
+          
           <button
             onClick={() => onCompleteTask(task.id)}
             disabled={isCompleted}
-            className="bg-green-500 text-white font-semibold py-2 px-4 rounded-md text-sm hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2 ml-auto"
+            className="bg-green-500 text-white font-semibold py-2 px-4 rounded-md text-sm hover:bg-green-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
           >
             {isCompleted ? (
               <>
@@ -178,7 +196,7 @@ const TaskCard: React.FC<{
   );
 };
 
-const Tasks: React.FC<TasksProps> = ({ tasks, onAnswerChange, onCompleteTask, onTaskItemTextChange }) => {
+const Tasks: React.FC<TasksProps> = ({ tasks, onAnswerChange, onCompleteTask, onTaskItemTextChange, onDeleteTask }) => {
   const writtenTasks = tasks.filter((t) => t.type === 'written');
   const completedCount = writtenTasks.filter((t) => t.status === 'completed').length;
 
@@ -207,6 +225,7 @@ const Tasks: React.FC<TasksProps> = ({ tasks, onAnswerChange, onCompleteTask, on
             onAnswerChange={onAnswerChange}
             onCompleteTask={onCompleteTask}
             onTaskItemTextChange={onTaskItemTextChange}
+            onDeleteTask={onDeleteTask} // ИСПРАВЛЕНО: Передаем функцию
           />
         ))}
         {tasks.length === 0 && (

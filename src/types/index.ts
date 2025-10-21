@@ -69,3 +69,10 @@ export interface Lesson {
   completedTasksCount: number;
   totalTasksCount: number;
 }
+
+export interface UserTaskAnswer {
+  id: string; // ID задачи (task.id)
+  status: 'pending' | 'completed';
+  userAnswer: string | null;
+  userAnswers: (string | null)[] | null;
+}

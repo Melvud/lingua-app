@@ -2,11 +2,7 @@
 
 /**
  * Современный, структурированный PDF-отчёт на jsPDF.
- * Изменения:
- *  - Ответы вставляются ВНУТРЬ предложения и выделяются ТОЛЬКО цветом (без плашек/карточек).
- *  - Никаких тире/стрелок в обычных заданиях — сплошной текст в исходном порядке.
- *  - Переводы — таблицей: слева исходник, справа перевод.
- *  - Шрифт Arimo подключается из src/utils/fonts.ts (TTF data:URL).
+ * (Версия с исправлениями для никнейма).
  */
 
 import type { Task } from '../types';
@@ -15,7 +11,7 @@ import { FONT_DATA_URL } from '../utils/fonts';
 declare const window: any;
 
 /* =========================
- *  ШРИФТЫ
+ * ШРИФТЫ
  * ========================= */
 
 function getJsPDFCtor(): any {
@@ -55,7 +51,7 @@ function registerArimoFont(doc: any): void {
 }
 
 /* =========================
- *  УТИЛИТЫ ВЁРСТКИ
+ * УТИЛИТЫ ВЁРСТКИ
  * ========================= */
 
 type RenderContext = {
@@ -91,12 +87,6 @@ function drawLines(doc: any, lines: string[], x: number, y: number, lineHeight: 
   return y + lines.length * lineHeight;
 }
 
-/**
- * Рисуем предложение с "встроенными" ответами.
- * parts: [{ text, isAnswer? }...], ответы берём из item.userAnswers / userAnswer.
- * Выделение ответа: ТОЛЬКО ЦВЕТОМ (без фона/рамок/капса), чтобы ничего не перекрывало.
- * Реализована пословная отрисовка с ручным переносом по ширине.
- */
 function drawSentenceWithInlineAnswers(
   ctx: RenderContext,
   parts: Array<{ text: string; isAnswer?: boolean }>,
@@ -106,7 +96,6 @@ function drawSentenceWithInlineAnswers(
 ) {
   const { doc, contentWidth, lineHeight, baseFontSize } = ctx;
 
-  // Токены текста (слова и места ответов)
   let ansIdx = 0;
   const tokens: Array<{ text: string; isAnswer?: boolean }> = [];
   const answers = answersSource.userAnswers ?? (
@@ -117,7 +106,7 @@ function drawSentenceWithInlineAnswers(
 
   parts.forEach((p) => {
     if (p?.isAnswer) {
-      const a = (answers[ansIdx] ?? '_____'); // показываем как есть
+      const a = (answers[ansIdx] ?? '_____');
       ansIdx++;
       tokens.push({ text: a.length ? a : '_____', isAnswer: true });
     } else if (p?.text) {
@@ -126,7 +115,6 @@ function drawSentenceWithInlineAnswers(
     }
   });
 
-  // Ручной перенос
   let cx = x;
   let cy = y;
   const maxX = x + contentWidth;
@@ -135,20 +123,17 @@ function drawSentenceWithInlineAnswers(
     const isAns = !!t.isAnswer;
     const text = t.text;
 
-    // одинаковый размер шрифта для текста и ответа
     const fs = baseFontSize;
     doc.setFontSize(fs);
 
     const tw = doc.getTextWidth(text);
 
-    // перенос строки при нехватке места (для слов, а не пустых пробелов)
     if (cx + tw > maxX && text.trim().length > 0) {
       cx = x;
       cy += lineHeight;
     }
 
     if (isAns) {
-      // только цвет — ничего не перекрывает
       doc.setTextColor(14, 53, 120); // спокойный синий
       doc.text(text, cx, cy);
       doc.setTextColor(0, 0, 0);
@@ -163,7 +148,7 @@ function drawSentenceWithInlineAnswers(
 }
 
 /* =========================
- *  ХЕДЕР И НУМЕРАЦИЯ
+ * ХЕДЕР И НУМЕРАЦИЯ
  * ========================= */
 
 function renderHeader(doc: any, margin: number): number {
@@ -205,7 +190,7 @@ function addPageNumbers(doc: any, margin: number): void {
 }
 
 /* =========================
- *  ОТРИСОВКА ЗАДАНИЙ
+ * ОТРИСОВКА ЗАДАНИЙ
  * ========================= */
 
 function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
@@ -217,13 +202,11 @@ function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
   let boxY = ctx.cursorY;
   const boxW = contentWidth;
 
-  // Заголовок
   const title = `${index + 1}. ${task.instruction || 'Задание'}`;
   doc.setFontSize(14);
   const titleMeasure = wrapText(doc, title, boxW - padX * 2, lineHeight);
   let innerHeight = padY + titleMeasure.height + 4;
 
-  // Мета
   if (task.pageNumber || task.exerciseNumber) {
     doc.setFontSize(10);
     const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
@@ -231,12 +214,10 @@ function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
     innerHeight += metaMeasure.height + 2;
   }
 
-  // Приблизительная высота для страховки
   const estPerItem = lineHeight * 2.2;
   innerHeight += (task.items?.length || 0) * estPerItem;
   ensurePageSpace(ctx, innerHeight + padY);
 
-  // Карточка
   boxY = ctx.cursorY;
   doc.setFillColor(247, 249, 252);
   doc.setDrawColor(224, 229, 236);
@@ -244,7 +225,6 @@ function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
   doc.setFillColor(66, 133, 244);
   doc.roundedRect(boxX, boxY, 3, Math.max(innerHeight + padY, 22), 2, 2, 'F');
 
-  // Контент
   let y = boxY + padY;
 
   doc.setFontSize(14);
@@ -259,12 +239,10 @@ function renderNonTranslateTask(ctx: RenderContext, task: Task, index: number) {
     doc.setTextColor(0, 0, 0);
   }
 
-  // Разделитель
   doc.setDrawColor(230, 235, 242);
   doc.line(boxX + padX, y, boxX + boxW - padX, y);
   y += 4;
 
-  // Пункты: буква + предложение с ответами внутри (без тире/стрелок)
   doc.setFontSize(ctx.baseFontSize);
   const items = task.items || [];
   items.forEach((item, i) => {
@@ -300,13 +278,11 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
   let boxY = ctx.cursorY;
   const boxW = contentWidth;
 
-  // Заголовок
   const title = `${index + 1}. ${task.instruction || 'Задание'}`;
   doc.setFontSize(14);
   const titleMeasure = wrapText(doc, title, boxW - padX * 2, lineHeight);
   let innerHeight = padY + titleMeasure.height + 4;
 
-  // Мета
   if (task.pageNumber || task.exerciseNumber) {
     doc.setFontSize(10);
     const meta = `Стр. ${task.pageNumber || '–'}, Упр. ${task.exerciseNumber || '–'}`;
@@ -314,7 +290,6 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
     innerHeight += metaMeasure.height + 2;
   }
 
-  // Подготовка строк таблицы
   const rows = (task.items || []).map((item: any) => {
     const source = (item.textParts || []).map((p: any) => p?.text ?? '').join('').replace(/\s+/g, ' ').trim();
     const target = (item.userAnswer || '').trim();
@@ -335,7 +310,6 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
   innerHeight += rowsHeight + 8;
   ensurePageSpace(ctx, innerHeight + padY);
 
-  // Карточка
   boxY = ctx.cursorY;
   doc.setFillColor(247, 249, 252);
   doc.setDrawColor(224, 229, 236);
@@ -343,7 +317,6 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
   doc.setFillColor(66, 133, 244);
   doc.roundedRect(boxX, boxY, 3, innerHeight + padY, 2, 2, 'F');
 
-  // Контент
   let y = boxY + padY;
 
   doc.setFontSize(14);
@@ -358,7 +331,6 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
     doc.setTextColor(0, 0, 0);
   }
 
-  // Шапка таблицы
   const headerH = 8;
   doc.setFillColor(238, 242, 248);
   doc.setDrawColor(224, 229, 236);
@@ -372,7 +344,6 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
 
   y += headerH + 3;
 
-  // Ряды таблицы
   doc.setFontSize(baseFontSize);
   rows.forEach((r) => {
     const left = wrapText(doc, r.source || '—', col1W, lineHeight);
@@ -396,14 +367,14 @@ function renderTranslateTask(ctx: RenderContext, task: Task, index: number) {
 }
 
 /* =========================
- *  ОСНОВНАЯ ФУНКЦИЯ
+ * ОСНОВНАЯ ФУНКЦИЯ
  * ========================= */
 
-export function generatePdfReport(tasks: Task[]): void {
+// ИСПРАВЛЕНО: Принимаем 'nickname' для имени файла
+export function generatePdfReport(tasks: Task[], nickname: string): void {
   const jsPDF = getJsPDFCtor();
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
 
-  // Шрифт
   registerArimoFont(doc);
   doc.setFont('Arimo', 'normal');
 
@@ -436,5 +407,9 @@ export function generatePdfReport(tasks: Task[]): void {
   });
 
   addPageNumbers(doc, margin);
-  doc.save(`report_${new Date().toISOString().slice(0, 10)}.pdf`);
+
+  // ИСПРАВЛЕНО: Используем никнейм в имени файла
+  const safeNickname = nickname.replace(/[^a-z0-9]/gi, '_') || 'user';
+  const dateStr = new Date().toISOString().slice(0, 10);
+  doc.save(`report_${safeNickname}_${dateStr}.pdf`);
 }

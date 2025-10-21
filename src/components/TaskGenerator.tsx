@@ -30,6 +30,7 @@ const TaskGenerator: React.FC<TaskGeneratorProps> = ({
   // Синхронизация файлов из sharedData
   useEffect(() => {
     if (sharedFiles && sharedFiles.length > 0) {
+      // Это только для отображения имен, не сами File объекты
       const files = sharedFiles.map(f => {
         const file = new File([''], f.name, { type: 'application/octet-stream' });
         return file;
@@ -50,7 +51,8 @@ const TaskGenerator: React.FC<TaskGeneratorProps> = ({
     if (files.length > 0) {
       const newFiles = [...uploadedFiles, ...files];
       setUploadedFiles(newFiles);
-      onUpdateSharedFiles(newFiles);
+      // ИСПРАВЛЕНО: НЕЛЬЗЯ сохранять File объекты в Firestore.
+      // onUpdateSharedFiles(newFiles); // Эта строка вызывала ошибку
       setError('');
     }
   };
@@ -58,7 +60,8 @@ const TaskGenerator: React.FC<TaskGeneratorProps> = ({
   const handleRemoveFile = (index: number) => {
     const newFiles = uploadedFiles.filter((_, i) => i !== index);
     setUploadedFiles(newFiles);
-    onUpdateSharedFiles(newFiles);
+    // ИСПРАВЛЕНО: НЕЛЬЗЯ сохранять File объекты в Firestore.
+    // onUpdateSharedFiles(newFiles); // Эта строка вызывала ошибку
   };
 
   const handleInstructionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -139,7 +142,7 @@ const TaskGenerator: React.FC<TaskGeneratorProps> = ({
         setInstruction('');
         setUploadedFiles([]);
         onUpdateSharedInstruction('');
-        onUpdateSharedFiles([]);
+        // onUpdateSharedFiles([]); // Это тоже не нужно
         
         if (fileInputRef.current) {
           fileInputRef.current.value = '';

@@ -1,10 +1,10 @@
 // src/components/Workspace.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import TaskGenerator from './TaskGenerator';
 import Tasks from './Tasks';
 import Textbook from './Textbook';
 import Dictionary from './Dictionary';
-import type { Task, VocabularyItem, Annotation, Tool, TaskItemPart } from '../types';
+import type { Task, VocabularyItem, Annotation, Tool, TaskItemPart, TextbookFile } from '../types';
 
 type WorkspaceTab = 'tasks' | 'textbook' | 'dictionary';
 
@@ -23,6 +23,7 @@ interface WorkspaceProps {
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
+  onDeleteTask: (taskId: string) => void; // ИСПРАВЛЕНО: Добавлено
   onNavigateToPage: (page: number) => void;
   onAddVocabularyItem: (item: Omit<VocabularyItem, 'id'>) => void;
   onUpdateVocabularyItem: (id: string, updates: Partial<VocabularyItem>) => void;
@@ -35,8 +36,6 @@ interface WorkspaceProps {
   onAddTextbook: (file: File) => void;
   currentPage: number;
   onPageChange: (page: number) => void;
-  zoom: number;
-  setZoom: (zoom: number) => void;
   tool: Tool;
   setTool: (tool: Tool) => void;
   color: string;
@@ -52,6 +51,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   onAnswerChange,
   onCompleteTask,
   onTaskItemTextChange,
+  onDeleteTask, // ИСПРАВЛЕНО: Получаем
   onNavigateToPage,
   onAddVocabularyItem,
   onUpdateVocabularyItem,
@@ -64,8 +64,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
   onAddTextbook,
   currentPage,
   onPageChange,
-  zoom,
-  setZoom,
   tool,
   setTool,
   color,
@@ -78,6 +76,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
     { id: 'textbook', label: 'Учебник', icon: '📖' },
     { id: 'dictionary', label: 'Словарь', icon: '📚' },
   ];
+  
+  // Локальное состояние для учебника
+  const [selectedTextbook, setSelectedTextbook] = useState<TextbookFile | null>(null);
+  const [numPages, setNumPages] = useState(0);
 
   return (
     <main className="flex-grow flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
@@ -112,10 +114,10 @@ const Workspace: React.FC<WorkspaceProps> = ({
         </nav>
       </div>
 
-      {/* Контент вкладок */}
-      <div className="flex-grow overflow-hidden">
+      {/* Контент вкладок (с фиксом скролла) */}
+      <div className="flex-grow overflow-y-auto">
         {activeTab === 'tasks' && (
-          <div className="h-full flex flex-col">
+          <div>
             {/* Генератор заданий */}
             <div className="flex-shrink-0 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 border-b border-gray-200 dark:border-gray-700">
               <TaskGenerator
@@ -129,12 +131,13 @@ const Workspace: React.FC<WorkspaceProps> = ({
             </div>
 
             {/* Список заданий */}
-            <div className="flex-grow overflow-y-auto p-4 bg-gray-50 dark:bg-gray-900">
+            <div className="p-4 bg-gray-50 dark:bg-gray-900">
               <Tasks
                 tasks={tasks}
                 onAnswerChange={onAnswerChange}
                 onCompleteTask={onCompleteTask}
                 onTaskItemTextChange={onTaskItemTextChange}
+                onDeleteTask={onDeleteTask} // ИСПРАВЛЕНО: Передаем
               />
             </div>
           </div>
@@ -142,12 +145,14 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
         {activeTab === 'textbook' && (
           <Textbook
-            textbooks={sharedData?.textbooks || []}
+            textbooks={sharedData?.textbooks as TextbookFile[] || []}
+            selectedTextbook={selectedTextbook}
+            setSelectedTextbook={setSelectedTextbook}
             onAddTextbook={onAddTextbook}
+            numPages={numPages}
+            setNumPages={setNumPages}
             currentPage={currentPage}
             setCurrentPage={onPageChange}
-            zoom={zoom}
-            setZoom={setZoom}
             tool={tool}
             setTool={setTool}
             color={color}
