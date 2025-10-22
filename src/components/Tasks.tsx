@@ -1,12 +1,11 @@
 // src/components/Tasks.tsx
 import React, { useState } from 'react';
-// ИСПРАВЛЕНО: Добавлен тип UserAnswersStore
 import type { Task, TaskItem, TaskItemPart, UserAnswersStore } from '../types';
 import { CheckCircleIcon, PenIcon, TrashIcon } from './Icons';
 
 interface TasksProps {
   tasks: Task[];
-  userAnswers: UserAnswersStore; // ИСПРАВЛЕНО: Добавлены ответы пользователя
+  userAnswers: UserAnswersStore;
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
@@ -15,7 +14,7 @@ interface TasksProps {
 
 const TaskCard: React.FC<{
   task: Task;
-  userAnswers: UserAnswersStore; // ИСПРАВЛЕНО: Добавлены ответы пользователя
+  userAnswers: UserAnswersStore;
   onAnswerChange: (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => void;
   onCompleteTask: (taskId: string) => void;
   onTaskItemTextChange: (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => void;
@@ -47,7 +46,6 @@ const TaskCard: React.FC<{
     const currentItemId = `${task.id}-${index}`;
     const isEditing = editingItemId === currentItemId;
 
-    // Устные задания - только текст
     if (task.type === 'oral') {
       return (
         <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
@@ -56,7 +54,6 @@ const TaskCard: React.FC<{
       );
     }
 
-    // Редактирование текста задания
     if (isEditing) {
       return (
         <input
@@ -75,11 +72,10 @@ const TaskCard: React.FC<{
       );
     }
 
-    // Задание с переводом
     if (item.type === 'translate') {
       const russianText = item.textParts[0]?.text || '';
-      // ИСПРАВЛЕНО: Значение берется из userAnswers
-      const userAnswer = userAnswers[task.id]?.[index]?.userAnswer || '';
+      // ИСПРАВЛЕНО: Конвертируем index в строку
+      const userAnswer = userAnswers[task.id]?.[String(index)]?.userAnswer || '';
       return (
         <div className="space-y-2">
           <p className="text-gray-800 dark:text-gray-200 font-medium">{russianText}</p>
@@ -95,7 +91,6 @@ const TaskCard: React.FC<{
       );
     }
 
-    // Задание с пропусками
     if (item.type === 'fill-in-the-blank') {
       let answerIndex = 0;
       return (
@@ -103,8 +98,8 @@ const TaskCard: React.FC<{
           {item.textParts.map((part, partIndex) => {
             if (part.isAnswer) {
               const currentAnswerIndex = answerIndex++;
-              // ИСПРАВЛЕНО: Значение берется из userAnswers
-              const userAnswer = userAnswers[task.id]?.[index]?.userAnswers?.[currentAnswerIndex] || '';
+              // ИСПРАВЛЕНО: Конвертируем index в строку
+              const userAnswer = userAnswers[task.id]?.[String(index)]?.userAnswers?.[currentAnswerIndex] || '';
               return (
                 <input
                   key={partIndex}
@@ -123,7 +118,6 @@ const TaskCard: React.FC<{
       );
     }
 
-    // Plain text
     return <p className="text-gray-800 dark:text-gray-200">{item.textParts.map(p => p.text).join('')}</p>;
   };
 
@@ -227,7 +221,7 @@ const Tasks: React.FC<TasksProps> = ({ tasks, userAnswers, onAnswerChange, onCom
           <TaskCard
             key={task.id}
             task={task}
-            userAnswers={userAnswers} // ИСПРАВЛЕНО: Передаем ответы
+            userAnswers={userAnswers}
             onAnswerChange={onAnswerChange}
             onCompleteTask={onCompleteTask}
             onTaskItemTextChange={onTaskItemTextChange}

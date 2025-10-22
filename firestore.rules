@@ -2,33 +2,28 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Пользователи могут читать и обновлять свои данные
     match /users/{userId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Запросы на пары
     match /pairRequests/{requestId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if request.auth != null;
     }
     
-    // Данные пар
     match /pairs/{pairId} {
       allow read: if request.auth != null;
       allow write: if request.auth != null;
     }
     
-    // Приглашения
     match /invites/{inviteId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
       allow update: if request.auth != null;
     }
     
-    // Уроки
     match /lessons/{lessonId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
@@ -36,10 +31,15 @@ service cloud.firestore {
       allow delete: if request.auth != null;
     }
     
-    // Сообщения
     match /messages/{messageId} {
       allow read: if request.auth != null;
       allow create: if request.auth != null;
+    }
+    
+    // ИСПРАВЛЕНО: Добавлено правило для lessonUserAnswers
+    match /lessonUserAnswers/{docId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
     }
   }
 }

@@ -11,7 +11,6 @@ import Sidebar from './src/components/Sidebar';
 import Workspace from './src/components/Workspace';
 import Notification from './src/components/Notification';
 import { useLessonSync } from './src/hooks/useLessonSync';
-// ИСПРАВЛЕНО: Добавлены UserAnswersStore и AnnotationStore
 import type { Message, Task, Annotation, Tool, TextbookFile, TaskItemPart, VocabularyItem, UserAnswersStore, AnnotationStore } from './src/types';
 import { generatePdfReport } from './src/services/pdfReportGenerator';
 
@@ -43,14 +42,10 @@ const WorkspaceContent: React.FC = () => {
   const [activeSidebarTab, setActiveSidebarTab] = useState<SidebarTab>('video');
   const [activeWorkspaceTab, setActiveWorkspaceTab] = useState<WorkspaceTab>('tasks');
   
-  // ИСПРАВЛЕНО: 'tasks' теперь хранит ТОЛЬКО структуру заданий
   const [tasks, setTasks] = useState<Task[]>([]);
   
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#FF0000');
-  
-  // ИСПРАВЛЕНО: Локальное состояние 'annotations' удалено. Оно будет приходить из useLessonSync
-  // const [annotations, setAnnotations] = useState<{ [key: number]: Annotation[] }>({});
   
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
   const [pdfLibraryLoaded, setPdfLibraryLoaded] = useState(false);
@@ -60,11 +55,9 @@ const WorkspaceContent: React.FC = () => {
   const {
     lessonData,
     sharedData,
-    // ИСПРАВЛЕНО: Получаем новые данные и функции
     userAnswers,
     updateUserAnswers,
     updateSharedAnnotations,
-    // ...
     updateSharedFiles,
     updateSharedInstruction,
     updateSharedVocabulary,
@@ -75,23 +68,17 @@ const WorkspaceContent: React.FC = () => {
     sendMessage
   } = useLessonSync(lessonId, userProfile?.pairId);
 
-  // ИСПРАВЛЕНО: Этот эффект теперь просто синхронизирует СТРУКТУРУ заданий
   useEffect(() => {
     if (lessonData?.tasks) {
-      // Сравниваем, чтобы избежать бесконечного цикла
-      // (Это простая, но не идеальная проверка)
       if (JSON.stringify(lessonData.tasks) !== JSON.stringify(tasks)) {
          setTasks(lessonData.tasks);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lessonData?.tasks]); 
 
-  // ИСПРАВЛЕНО: Этот статус теперь определяется по tasks из Firebase
   const writtenTasks = lessonData?.tasks.filter(t => t.type === 'written') || [];
   const allTasksCompleted = writtenTasks.length > 0 && writtenTasks.every(t => t.status === 'completed');
 
-  // Эффект для настройки библиотек PDF (без изменений)
   useEffect(() => {
     console.log('🚀 Workspace component mounted');
     const checkPdfLibrary = () => {
@@ -121,12 +108,10 @@ const WorkspaceContent: React.FC = () => {
 
   const handleGenerateTasks = (newTasks: Task[], newVocabulary: VocabularyItem[]) => {
     
-    // ИСПРАВЛЕНО: Не добавляем userAnswers/userAnswer в объект Task
-    // Они хранятся отдельно
     const updatedTasks = [...tasks, ...newTasks];
     
     setTasks(updatedTasks);
-    updateLessonTasks(updatedTasks); // Сохраняем СТРУКТУРУ в БД
+    updateLessonTasks(updatedTasks);
     
     if (newVocabulary.length > 0) {
       updateSharedVocabulary([...(sharedData?.vocabulary || []), ...newVocabulary]);
@@ -144,37 +129,34 @@ const WorkspaceContent: React.FC = () => {
     }
   };
 
-  // ИСПРАВЛЕНО: Полностью новая логика для сохранения ответов
   const handleAnswerChange = (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => {
-    // Создаем глубокую копию текущих ответов, чтобы избежать мутаций
-    const newAnswersStore: UserAnswersStore = JSON.parse(JSON.stringify(userAnswers || {}));
+  const newAnswersStore: UserAnswersStore = JSON.parse(JSON.stringify(userAnswers || {}));
 
-    // Инициализируем объекты, если их нет
-    if (!newAnswersStore[taskId]) {
-      newAnswersStore[taskId] = {};
+  if (!newAnswersStore[taskId]) {
+    newAnswersStore[taskId] = {};
+  }
+  
+  // ИСПРАВЛЕНО: Конвертируем число в строку
+  const itemKey = String(itemIndex);
+  
+  if (!newAnswersStore[taskId][itemKey]) {
+    newAnswersStore[taskId][itemKey] = {};
+  }
+
+  const itemAnswers = newAnswersStore[taskId][itemKey];
+
+  if (answerIndex !== undefined) {
+    if (!itemAnswers.userAnswers) {
+      itemAnswers.userAnswers = [];
     }
-    if (!newAnswersStore[taskId][itemIndex]) {
-      newAnswersStore[taskId][itemIndex] = {};
-    }
+    itemAnswers.userAnswers[answerIndex] = answer;
+  } else {
+    itemAnswers.userAnswer = answer;
+  }
+  
+  updateUserAnswers(newAnswersStore);
+};
 
-    const itemAnswers = newAnswersStore[taskId][itemIndex];
-
-    if (answerIndex !== undefined) {
-      // Это 'fill-in-the-blank'
-      if (!itemAnswers.userAnswers) {
-        itemAnswers.userAnswers = [];
-      }
-      itemAnswers.userAnswers[answerIndex] = answer;
-    } else {
-      // Это 'translate'
-      itemAnswers.userAnswer = answer;
-    }
-    
-    // Вызываем функцию из хука для сохранения в Firestore
-    updateUserAnswers(newAnswersStore);
-  };
-
-  // ИСПРАВЛЕНО: Сохраняем изменения текста задания в БД
   const handleTaskItemTextChange = (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => {
     const newTasks = tasks.map(task => 
       task.id === taskId 
@@ -183,21 +165,19 @@ const WorkspaceContent: React.FC = () => {
     );
     
     setTasks(newTasks);
-    updateLessonTasks(newTasks); // Сохраняем СТРУКТУРУ в БД
+    updateLessonTasks(newTasks);
   };
 
-  // ИСПРАВЛЕНО: Сохраняем статус в БД
   const handleCompleteTask = (taskId: string) => {
     const updatedTasks = tasks.map(task =>
       task.id === taskId ? { ...task, status: 'completed' as const } : task
     );
     setTasks(updatedTasks);
-    updateLessonTasks(updatedTasks); // Сохраняем СТАТУС в БД
+    updateLessonTasks(updatedTasks);
     
     showNotification('Задание выполнено!', 'success');
   };
 
-  // Удаление (Логика была верной)
   const handleDeleteTask = (taskId: string) => {
     const updatedTasks = tasks.filter(task => task.id !== taskId);
     setTasks(updatedTasks);
@@ -205,7 +185,6 @@ const WorkspaceContent: React.FC = () => {
     showNotification('Задание удалено', 'info');
   };
 
-  // (Функции Словаря ... без изменений)
   const handleAddVocabularyItem = (item: Omit<VocabularyItem, 'id'>) => {
     const newItem: VocabularyItem = {
       ...item,
@@ -229,17 +208,14 @@ const WorkspaceContent: React.FC = () => {
     showNotification('Слово удалено из словаря', 'info');
   };
 
-
-  // ИСПРАВЛЕНО: Генерация отчета теперь требует `userAnswers`
+  // ИСПРАВЛЕНО: Генерация отчета с внедрением ответов в задания
   const handleGenerateFinalReport = () => {
     if (!userProfile) {
       showNotification('Ваш профиль еще не загрузился', 'warning');
       return;
     }
-    // Используем 'tasks' из локального состояния (или 'lessonData.tasks', они должны быть синхр.)
     const written = tasks.filter(t => t.type === 'written');
     
-    // Проверяем статус в 'tasks'
     const allDone = written.length > 0 && written.every(t => t.status === 'completed');
     
     if (!allDone) {
@@ -252,15 +228,26 @@ const WorkspaceContent: React.FC = () => {
     }
 
     try {
-      // ИСПРАВЛЕНО: Передаем `tasks` и `userAnswers` (для этого пользователя)
-      generatePdfReport(written, userAnswers, userProfile.nickname);
+      // ИСПРАВЛЕНО: Внедряем ответы пользователя в задания перед генерацией PDF
+      const tasksWithAnswers = written.map(task => ({
+        ...task,
+        items: task.items.map((item, itemIndex) => {
+          const answers = userAnswers?.[task.id]?.[itemIndex] || {};
+          return {
+            ...item,
+            userAnswer: answers.userAnswer || '',
+            userAnswers: answers.userAnswers || []
+          } as any;
+        })
+      }));
+      
+      generatePdfReport(tasksWithAnswers, userProfile.nickname);
       showNotification('PDF отчет успешно создан и скачан!', 'success');
     } catch (error) {
       showNotification(`Ошибка при генерации PDF: ${error instanceof Error ? error.message : 'Неизвестная ошибка'}`, 'error');
     }
   };
 
-  // (handleAddTextbook ... без изменений)
   const handleAddTextbook = async (file: File) => {
     if (isUploading) return;
     if (!lessonId) {
@@ -297,7 +284,6 @@ const WorkspaceContent: React.FC = () => {
     }
   };
 
-  // (handleNavigateToPage ... без изменений)
   const handleNavigateToPage = (page: number) => {
     if (!sharedData?.textbooks || sharedData.textbooks.length === 0) {
       showNotification('Пожалуйста, сначала загрузите учебник', 'warning');
@@ -348,11 +334,11 @@ const WorkspaceContent: React.FC = () => {
           pairId={userProfile?.pairId}
         />
         <Workspace
-          tasks={tasks} // Передаем 'tasks' (только структура)
-          userAnswers={userAnswers} // ИСПРАВЛЕНО: Передаем 'userAnswers'
+          tasks={tasks}
+          userAnswers={userAnswers}
           vocabulary={sharedData?.vocabulary || []}
           onGenerateTasks={handleGenerateTasks}
-          onAnswerChange={handleAnswerChange} // ИСПРАВЛЕНО: Передаем новый обработчик
+          onAnswerChange={handleAnswerChange}
           onCompleteTask={handleCompleteTask}
           onTaskItemTextChange={handleTaskItemTextChange}
           onDeleteTask={handleDeleteTask}
@@ -366,11 +352,9 @@ const WorkspaceContent: React.FC = () => {
           onUpdateSharedFiles={updateSharedFiles}
           onUpdateSharedInstruction={updateSharedInstruction}
           onAddTextbook={handleAddTextbook}
-          // ИСПРАВЛЕНО: Передаем функцию выбора учебника
-          onSelectTextbook={(name) => updateSharedCurrentPage(1) /* Сброс страницы при смене */ }
+          onSelectTextbook={(name) => updateSharedCurrentPage(1)}
           currentPage={sharedData?.currentPage || 1}
           onPageChange={handlePageChange}
-          // ИСПРАВЛЕНО: Передаем обработчик аннотаций
           onUpdateSharedAnnotations={updateSharedAnnotations}
         />
       </div>
@@ -378,7 +362,6 @@ const WorkspaceContent: React.FC = () => {
   );
 };
 
-// (AppContent ... без изменений)
 const AppContent: React.FC = () => {
   const { currentUser, userProfile } = useAuth();
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -394,7 +377,6 @@ const AppContent: React.FC = () => {
   return <Navigate to="/" />;
 };
 
-// (App ... без изменений)
 const App: React.FC = () => {
   return (
     <BrowserRouter>
@@ -410,7 +392,6 @@ const App: React.FC = () => {
   );
 };
 
-// (MainScreenWrapper ... без изменений)
 const MainScreenWrapper: React.FC = () => {
   const navigate = useNavigate();
   const { currentUser } = useAuth();
