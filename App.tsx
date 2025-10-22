@@ -14,10 +14,8 @@ import { useLessonSync } from './src/hooks/useLessonSync';
 import type { Message, Task, Annotation, Tool, TextbookFile, TaskItemPart, VocabularyItem, UserAnswersStore, AnnotationStore } from './src/types';
 import { generatePdfReport } from './src/services/pdfReportGenerator';
 
-// Импорты для Firebase Storage
 import { storage } from './src/config/firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-
 
 declare const window: any;
 
@@ -50,8 +48,7 @@ const WorkspaceContent: React.FC = () => {
   const [notifications, setNotifications] = useState<NotificationState[]>([]);
   const [pdfLibraryLoaded, setPdfLibraryLoaded] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-
-  // Используем хук для синхронизации данных урока
+  
   const {
     lessonData,
     sharedData,
@@ -107,7 +104,6 @@ const WorkspaceContent: React.FC = () => {
   }, [currentUser, userProfile, sendMessage]);
 
   const handleGenerateTasks = (newTasks: Task[], newVocabulary: VocabularyItem[]) => {
-    
     const updatedTasks = [...tasks, ...newTasks];
     
     setTasks(updatedTasks);
@@ -129,33 +125,51 @@ const WorkspaceContent: React.FC = () => {
     }
   };
 
+  // ИСПРАВЛЕНО: Полностью переработанная функция
   const handleAnswerChange = (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => {
-  const newAnswersStore: UserAnswersStore = JSON.parse(JSON.stringify(userAnswers || {}));
+    console.log('📝 handleAnswerChange called:', { taskId, itemIndex, answer, answerIndex });
+    
+    // Создаем глубокую копию
+    const newAnswersStore: UserAnswersStore = JSON.parse(JSON.stringify(userAnswers || {}));
 
-  if (!newAnswersStore[taskId]) {
-    newAnswersStore[taskId] = {};
-  }
-  
-  // ИСПРАВЛЕНО: Конвертируем число в строку
-  const itemKey = String(itemIndex);
-  
-  if (!newAnswersStore[taskId][itemKey]) {
-    newAnswersStore[taskId][itemKey] = {};
-  }
-
-  const itemAnswers = newAnswersStore[taskId][itemKey];
-
-  if (answerIndex !== undefined) {
-    if (!itemAnswers.userAnswers) {
-      itemAnswers.userAnswers = [];
+    // Инициализируем структуру если нужно
+    if (!newAnswersStore[taskId]) {
+      newAnswersStore[taskId] = {};
     }
-    itemAnswers.userAnswers[answerIndex] = answer;
-  } else {
-    itemAnswers.userAnswer = answer;
-  }
-  
-  updateUserAnswers(newAnswersStore);
-};
+    
+    // Конвертируем itemIndex в строку для Firestore
+    const itemKey = String(itemIndex);
+    
+    if (!newAnswersStore[taskId][itemKey]) {
+      newAnswersStore[taskId][itemKey] = {};
+    }
+
+    const itemAnswers = newAnswersStore[taskId][itemKey];
+
+    if (answerIndex !== undefined) {
+      // Для fill-in-the-blank (множественные пропуски)
+      if (!itemAnswers.userAnswers) {
+        itemAnswers.userAnswers = [];
+      }
+      
+      // КРИТИЧНО: Заполняем пропуски пустыми строками, чтобы избежать undefined
+      while (itemAnswers.userAnswers.length <= answerIndex) {
+        itemAnswers.userAnswers.push('');
+      }
+      
+      // Устанавливаем значение
+      itemAnswers.userAnswers[answerIndex] = answer || '';
+      
+    } else {
+      // Для translate (один ответ)
+      itemAnswers.userAnswer = answer || '';
+    }
+    
+    console.log('💾 New answers structure:', JSON.stringify(newAnswersStore, null, 2));
+    
+    // Сохраняем
+    updateUserAnswers(newAnswersStore);
+  };
 
   const handleTaskItemTextChange = (taskId: string, itemIndex: number, newTextParts: TaskItemPart[]) => {
     const newTasks = tasks.map(task => 
@@ -208,7 +222,6 @@ const WorkspaceContent: React.FC = () => {
     showNotification('Слово удалено из словаря', 'info');
   };
 
-  // ИСПРАВЛЕНО: Генерация отчета с внедрением ответов в задания
   const handleGenerateFinalReport = () => {
     if (!userProfile) {
       showNotification('Ваш профиль еще не загрузился', 'warning');
@@ -228,11 +241,11 @@ const WorkspaceContent: React.FC = () => {
     }
 
     try {
-      // ИСПРАВЛЕНО: Внедряем ответы пользователя в задания перед генерацией PDF
       const tasksWithAnswers = written.map(task => ({
         ...task,
         items: task.items.map((item, itemIndex) => {
-          const answers = userAnswers?.[task.id]?.[itemIndex] || {};
+          const itemKey = String(itemIndex);
+          const answers = userAnswers?.[task.id]?.[itemKey] || {};
           return {
             ...item,
             userAnswer: answers.userAnswer || '',

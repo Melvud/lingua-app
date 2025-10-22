@@ -1,10 +1,9 @@
 // src/components/Workspace.tsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import TaskGenerator from './TaskGenerator';
 import Tasks from './Tasks';
 import Textbook from './Textbook';
 import Dictionary from './Dictionary';
-// ИСПРАВЛЕНО: Добавлены Tool и AnnotationStore
 import type { Task, VocabularyItem, TaskItemPart, TextbookFile, UserAnswersStore, Tool, AnnotationStore } from '../types';
 
 type WorkspaceTab = 'tasks' | 'textbook' | 'dictionary';
@@ -16,7 +15,7 @@ interface SharedData {
   files: Array<{ name: string; url: string }>;
   instruction: string;
   selectedTextbookName?: string | null; 
-  annotations?: AnnotationStore; // ИСПРАВЛЕНО: Добавлено
+  annotations?: AnnotationStore;
 }
 
 interface WorkspaceProps {
@@ -41,7 +40,6 @@ interface WorkspaceProps {
   onSelectTextbook: (name: string | null) => void; 
   currentPage: number;
   onPageChange: (page: number) => void;
-  // ИСПРАВЛЕНО: Добавлена функция обновления аннотаций
   onUpdateSharedAnnotations: (annotations: AnnotationStore) => void;
 }
 
@@ -67,7 +65,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
   onSelectTextbook, 
   currentPage,
   onPageChange,
-  onUpdateSharedAnnotations, // ИСПРАВЛЕНО: Получаем
+  onUpdateSharedAnnotations,
 }) => {
   const WORKSPACE_TABS: { id: WorkspaceTab; label: string; icon: string }[] = [
     { id: 'tasks', label: 'Задания', icon: '📝' },
@@ -75,19 +73,24 @@ const Workspace: React.FC<WorkspaceProps> = ({
     { id: 'dictionary', label: 'Словарь', icon: '📚' },
   ];
   
-  // (Логика selectedTextbook ... без изменений)
   const selectedTextbook = 
     sharedData?.textbooks.find(tb => tb.name === sharedData.selectedTextbookName) || null;
     
   const [numPages, setNumPages] = useState(0);
-
-  // ИСПРАВЛЕНО: Добавлено локальное состояние для инструментов
   const [tool, setTool] = useState<Tool>('pen');
-  const [color, setColor] = useState('#000000'); // Черный цвет по умолчанию
+  const [color, setColor] = useState('#000000');
+
+  // ИСПРАВЛЕНО: Синхронизация выбранного учебника
+  useEffect(() => {
+    if (sharedData?.selectedTextbookName && !selectedTextbook && sharedData.textbooks.length > 0) {
+      // Если выбранный учебник не найден, но есть учебники - выбираем первый
+      onSelectTextbook(sharedData.textbooks[0].name);
+    }
+  }, [sharedData?.textbooks, sharedData?.selectedTextbookName]);
 
   return (
     <main className="flex-grow flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
-      {/* (Табы ... без изменений) */}
+      {/* Табы */}
       <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800">
         <nav className="flex space-x-1 p-2" aria-label="Workspace Tabs">
           {WORKSPACE_TABS.map((tab) => (
@@ -102,7 +105,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
             >
               <span className="text-lg">{tab.icon}</span>
               {tab.label}
-              {/* (Индикаторы ... без изменений) */}
               {tab.id === 'tasks' && tasks.length > 0 && (
                 <span className="ml-1 bg-blue-500 text-white text-xs rounded-full px-2 py-0.5">{tasks.length}</span>
               )}
@@ -122,7 +124,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
       {/* Контент вкладок */}
       <div className="flex-grow overflow-y-auto">
         {activeTab === 'tasks' && (
-          // (Вкладка Задания ... без изменений)
           <div>
             <div className="flex-shrink-0 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-800 dark:to-gray-900 border-b border-gray-200 dark:border-gray-700">
               <TaskGenerator
@@ -157,7 +158,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
             setNumPages={setNumPages}
             currentPage={currentPage}
             setCurrentPage={onPageChange}
-            // ИСПРАВЛЕНО: Передаем состояние инструментов и аннотации
             tool={tool}
             setTool={setTool}
             color={color}
@@ -168,7 +168,6 @@ const Workspace: React.FC<WorkspaceProps> = ({
         )}
 
         {activeTab === 'dictionary' && (
-          // (Вкладка Словарь ... без изменений)
           <Dictionary
             vocabulary={vocabulary}
             onAddVocabularyItem={onAddVocabularyItem}

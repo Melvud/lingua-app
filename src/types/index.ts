@@ -39,7 +39,6 @@ export interface Task {
   exerciseNumber?: string;
 }
 
-// ИСПРАВЛЕНО: Эти типы снова нужны для PDF-аннотаций
 export type Tool = 'pen' | 'highlighter' | 'eraser';
 
 export interface AnnotationPoint {
@@ -53,12 +52,9 @@ export interface Annotation {
   points: AnnotationPoint[];
 }
 
-// ИСПРАВЛЕНО: Добавлен тип для хранения всех аннотаций
-// (Ключ - номер страницы, значение - массив аннотаций)
 export type AnnotationStore = {
   [pageNumber: number]: Annotation[];
 };
-
 
 export interface TextbookFile {
     name: string; 
@@ -77,18 +73,18 @@ export interface Lesson {
   totalTasksCount: number;
 }
 
+// ИСПРАВЛЕНО: Все ключи - строки для совместимости с Firestore
 export type UserAnswersStore = { 
   [taskId: string]: { 
-    [itemIndex: number]: { 
+    [itemIndex: string]: {  // Изменено на string
       userAnswer?: string; 
-      userAnswers?: string[] 
+      userAnswers?: string[]  // Массив всегда заполненный, без undefined
     } 
   } 
 };
 
-// Этот тип больше не используется в логике ответов
 export interface UserTaskAnswer {
-  id: string; // ID задачи (task.id)
+  id: string;
   status: 'pending' | 'completed';
   userAnswer: string | null;
   userAnswers: (string | null)[] | null;

@@ -74,8 +74,9 @@ const TaskCard: React.FC<{
 
     if (item.type === 'translate') {
       const russianText = item.textParts[0]?.text || '';
-      // ИСПРАВЛЕНО: Конвертируем index в строку
-      const userAnswer = userAnswers[task.id]?.[String(index)]?.userAnswer || '';
+      const itemKey = String(index);
+      const userAnswer = userAnswers[task.id]?.[itemKey]?.userAnswer || '';
+      
       return (
         <div className="space-y-2">
           <p className="text-gray-800 dark:text-gray-200 font-medium">{russianText}</p>
@@ -93,13 +94,16 @@ const TaskCard: React.FC<{
 
     if (item.type === 'fill-in-the-blank') {
       let answerIndex = 0;
+      const itemKey = String(index);
+      const savedAnswers = userAnswers[task.id]?.[itemKey]?.userAnswers || [];
+      
       return (
         <div className="flex-grow flex flex-wrap items-baseline">
           {item.textParts.map((part, partIndex) => {
             if (part.isAnswer) {
               const currentAnswerIndex = answerIndex++;
-              // ИСПРАВЛЕНО: Конвертируем index в строку
-              const userAnswer = userAnswers[task.id]?.[String(index)]?.userAnswers?.[currentAnswerIndex] || '';
+              const userAnswer = savedAnswers[currentAnswerIndex] || '';
+              
               return (
                 <input
                   key={partIndex}

@@ -14,66 +14,76 @@ interface SharedData {
   annotations?: AnnotationStore; 
 }
 
-// Вспомогательная функция для глубокой очистки данных перед отправкой в Firestore
-const sanitizeForFirestore = (obj: any, depth = 0): any => {
-  // Защита от бесконечной рекурсии
-  if (depth > 10) {
-    console.warn('⚠️ Max recursion depth reached');
+// УЛУЧШЕННАЯ функция очистки с детальным логированием
+const sanitizeForFirestore = (obj: any, depth = 0, path = 'root'): any => {
+  if (depth > 15) {
+    console.warn(`⚠️ Max depth at: ${path}`);
     return null;
   }
 
-  // Обработка null и undefined
   if (obj === null || obj === undefined) {
     return null;
   }
 
-  // Обработка массивов
-  if (Array.isArray(obj)) {
-    const cleaned = obj
-      .filter(item => item !== null && item !== undefined && item !== '')
-      .map(item => sanitizeForFirestore(item, depth + 1))
-      .filter(item => item !== null);
-    
-    return cleaned.length > 0 ? cleaned : null;
+  if (obj instanceof Date) {
+    return obj;
   }
 
-  // Обработка объектов
-  if (typeof obj === 'object' && obj !== null) {
-    // Проверка на Date объекты (разрешены в Firestore)
-    if (obj instanceof Date) {
-      return obj;
-    }
-
-    const result: any = {};
-    let hasContent = false;
-
-    for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        const cleanedValue = sanitizeForFirestore(obj[key], depth + 1);
-        
-        if (cleanedValue !== null && cleanedValue !== undefined) {
-          result[key] = cleanedValue;
-          hasContent = true;
-        }
-      }
-    }
-
-    return hasContent ? result : null;
-  }
-
-  // Обработка строк
   if (typeof obj === 'string') {
     const trimmed = obj.trim();
-    return trimmed.length > 0 ? trimmed : null;
+    return trimmed.length > 0 ? trimmed : '';  // Возвращаем пустую строку вместо null
   }
-
-  // Обработка чисел и булевых значений
+  
   if (typeof obj === 'number' || typeof obj === 'boolean') {
     return obj;
   }
 
-  // Все остальное отбрасываем
-  console.warn('⚠️ Unknown type encountered:', typeof obj);
+  // МАССИВЫ - КРИТИЧНО
+  if (Array.isArray(obj)) {
+    const cleaned = obj.map((item, idx) => {
+      if (item === undefined || item === null) {
+        console.log(`⚠️ Found undefined/null in array at ${path}[${idx}], replacing with empty string`);
+        return '';
+      }
+      return sanitizeForFirestore(item, depth + 1, `${path}[${idx}]`);
+    });
+    
+    console.log(`✅ Sanitized array at ${path}:`, cleaned);
+    return cleaned;
+  }
+
+  // ОБЪЕКТЫ
+  if (typeof obj === 'object') {
+    const result: any = {};
+    let hasContent = false;
+
+    for (const key in obj) {
+      if (!obj.hasOwnProperty(key)) continue;
+      
+      const stringKey = String(key);
+      const value = obj[key];
+      
+      console.log(`🔍 Processing key "${stringKey}" at ${path}:`, typeof value, value);
+      
+      const cleanedValue = sanitizeForFirestore(value, depth + 1, `${path}.${stringKey}`);
+      
+      // Включаем даже пустые строки и пустые массивы
+      if (cleanedValue !== null && cleanedValue !== undefined) {
+        result[stringKey] = cleanedValue;
+        hasContent = true;
+      }
+    }
+
+    if (!hasContent) {
+      console.log(`⚠️ Empty object at ${path}, returning null`);
+      return null;
+    }
+
+    console.log(`✅ Sanitized object at ${path}:`, result);
+    return result;
+  }
+
+  console.warn(`⚠️ Unknown type at ${path}:`, typeof obj, obj);
   return null;
 };
 
@@ -222,15 +232,16 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     });
   };
 
-  // ГЛАВНАЯ ФУНКЦИЯ: Обновление ответов пользователя
+  // КРИТИЧНО ВАЖНАЯ функция сохранения
   const updateUserAnswers = (newAnswers: UserAnswersStore) => {
     if (!lessonId || !userId) {
-      console.warn('⚠️ Cannot save: missing lessonId or userId');
+      console.error('❌ Cannot save: missing lessonId or userId', { lessonId, userId });
+      alert('Ошибка: не удалось определить урок или пользователя');
       return;
     }
     
-    console.log('💾 updateUserAnswers called');
-    console.log('📊 Raw data:', JSON.stringify(newAnswers, null, 2));
+    console.log('💾 ========== UPDATE USER ANSWERS ==========');
+    console.log('📊 Raw input data:', JSON.stringify(newAnswers, null, 2));
     
     // Немедленно обновляем UI
     setUserAnswers(newAnswers);
@@ -243,7 +254,6 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     
     // Запускаем новый таймер
     saveTimeoutRef.current = setTimeout(async () => {
-      // Проверка, не идет ли уже сохранение
       if (isSavingRef.current) {
         console.log('⏳ Save already in progress, skipping');
         return;
@@ -254,39 +264,64 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
       const docRef = doc(db, 'lessonUserAnswers', docId);
       
       try {
-        console.log('🔄 Starting save process...');
+        console.log('🔄 ========== SAVE PROCESS STARTED ==========');
         console.log('📝 Document ID:', docId);
+        console.log('👤 User ID:', userId);
+        console.log('📚 Lesson ID:', lessonId);
         
-        // Очищаем данные для Firestore
-        const sanitized = sanitizeForFirestore(newAnswers);
+        // ЭТАП 1: Очистка данных
+        console.log('🧹 Starting sanitization...');
+        const sanitized = sanitizeForFirestore(newAnswers, 0, 'answers');
         
-        console.log('🧹 Sanitized data:', JSON.stringify(sanitized, null, 2));
+        console.log('🧹 Sanitization complete!');
+        console.log('📦 Sanitized data:', JSON.stringify(sanitized, null, 2));
         
-        // Проверяем, что есть что сохранять
+        // ЭТАП 2: Валидация
         if (!sanitized || Object.keys(sanitized).length === 0) {
-          console.log('⚠️ No valid data to save, skipping');
+          console.warn('⚠️ No valid data after sanitization');
+          alert('Предупреждение: нет данных для сохранения');
           isSavingRef.current = false;
           return;
         }
         
-        // Сохраняем в Firestore
-        await setDoc(docRef, { 
+        // ЭТАП 3: Подготовка финального документа
+        const finalDoc = {
           answers: sanitized,
-          updatedAt: new Date()
-        });
+          updatedAt: new Date(),
+          userId: userId,
+          lessonId: lessonId
+        };
         
-        console.log('✅ Successfully saved to Firestore!');
+        console.log('📄 Final document to save:', JSON.stringify(finalDoc, null, 2));
+        
+        // ЭТАП 4: Сохранение в Firestore
+        console.log('💾 Saving to Firestore...');
+        await setDoc(docRef, finalDoc, { merge: false }); // merge: false для полной перезаписи
+        
+        console.log('✅ ========== SAVE SUCCESSFUL ==========');
         
       } catch (error: any) {
-        console.error('❌ Failed to save user answers');
+        console.error('❌ ========== SAVE FAILED ==========');
         console.error('Error object:', error);
         console.error('Error code:', error?.code);
         console.error('Error message:', error?.message);
-        console.error('Error stack:', error?.stack);
+        
+        // Детальная информация об ошибке
+        if (error?.code === 'permission-denied') {
+          alert('❌ Ошибка прав доступа!\n\nУ вас нет прав для сохранения ответов.\nПроверьте правила Firestore или обратитесь к администратору.');
+        } else if (error?.code === 'invalid-argument') {
+          alert('❌ Ошибка формата данных!\n\nДанные содержат недопустимые значения.\nСм. консоль для деталей.');
+          console.error('Invalid data that was attempted to save:', JSON.stringify(newAnswers, null, 2));
+        } else if (error?.message?.includes('permissions')) {
+          alert('❌ Ошибка прав доступа!\n\n' + error.message + '\n\nПроверьте правила Firestore.');
+        } else {
+          alert(`❌ Ошибка сохранения!\n\n${error?.message || 'Неизвестная ошибка'}\n\nСм. консоль для деталей.`);
+        }
+        
       } finally {
         isSavingRef.current = false;
       }
-    }, 1000); // 1 секунда задержки
+    }, 1000);
   };
 
   const updateSharedFiles = (files: Array<{ name: string; url: string }>) => {
