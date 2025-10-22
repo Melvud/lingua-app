@@ -73,20 +73,32 @@ const Workspace: React.FC<WorkspaceProps> = ({
     { id: 'dictionary', label: 'Словарь', icon: '📚' },
   ];
   
-  const selectedTextbook = 
-    sharedData?.textbooks.find(tb => tb.name === sharedData.selectedTextbookName) || null;
+  // ИСПРАВЛЕНО: Добавлена проверка на существование textbooks
+  const textbooks = sharedData?.textbooks || [];
+  const selectedTextbookName = sharedData?.selectedTextbookName;
+  
+  const selectedTextbook = textbooks.length > 0 && selectedTextbookName
+    ? textbooks.find(tb => tb.name === selectedTextbookName) || null
+    : null;
     
   const [numPages, setNumPages] = useState(0);
   const [tool, setTool] = useState<Tool>('pen');
   const [color, setColor] = useState('#000000');
 
-  // ИСПРАВЛЕНО: Синхронизация выбранного учебника
+  // ИСПРАВЛЕНО: Синхронизация выбранного учебника с проверкой
   useEffect(() => {
-    if (sharedData?.selectedTextbookName && !selectedTextbook && sharedData.textbooks.length > 0) {
-      // Если выбранный учебник не найден, но есть учебники - выбираем первый
-      onSelectTextbook(sharedData.textbooks[0].name);
+    if (!sharedData) return;
+    
+    const hasTextbooks = textbooks.length > 0;
+    const hasSelectedName = !!selectedTextbookName;
+    const selectedExists = hasSelectedName && textbooks.some(tb => tb.name === selectedTextbookName);
+    
+    // Если есть учебники, но не выбран или выбранный не существует - выбираем первый
+    if (hasTextbooks && (!hasSelectedName || !selectedExists)) {
+      console.log('🔄 Auto-selecting first textbook:', textbooks[0].name);
+      onSelectTextbook(textbooks[0].name);
     }
-  }, [sharedData?.textbooks, sharedData?.selectedTextbookName]);
+  }, [textbooks, selectedTextbookName, sharedData]);
 
   return (
     <main className="flex-grow flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
@@ -111,9 +123,9 @@ const Workspace: React.FC<WorkspaceProps> = ({
               {tab.id === 'dictionary' && vocabulary.length > 0 && (
                 <span className="ml-1 bg-purple-500 text-white text-xs rounded-full px-2 py-0.5">{vocabulary.length}</span>
               )}
-              {tab.id === 'textbook' && sharedData?.textbooks && sharedData.textbooks.length > 0 && (
+              {tab.id === 'textbook' && textbooks.length > 0 && (
                 <span className="ml-1 bg-green-500 text-white text-xs rounded-full px-2 py-0.5">
-                  {sharedData.textbooks.length}
+                  {textbooks.length}
                 </span>
               )}
             </button>
@@ -150,7 +162,7 @@ const Workspace: React.FC<WorkspaceProps> = ({
 
         {activeTab === 'textbook' && (
           <Textbook
-            textbooks={sharedData?.textbooks as TextbookFile[] || []}
+            textbooks={textbooks as TextbookFile[]}
             selectedTextbook={selectedTextbook} 
             onSelectTextbook={onSelectTextbook} 
             onAddTextbook={onAddTextbook}

@@ -6,8 +6,9 @@ import { Document, Page, pdfjs } from 'react-pdf';
 import 'react-pdf/dist/Page/AnnotationLayer.css';
 import 'react-pdf/dist/Page/TextLayer.css';
 
-// Настройка worker для react-pdf
-pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.js`;
+if (typeof window !== 'undefined' && 'Worker' in window) {
+  pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
+}
 
 interface TextbookProps {
     textbooks: TextbookFile[];
@@ -45,7 +46,6 @@ const Textbook: React.FC<TextbookProps> = ({
     const currentDrawingRef = useRef<Annotation | null>(null);
     const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
 
-    // Утилиты для canvas
     const getContext = (canvas: HTMLCanvasElement | null) => canvas?.getContext('2d');
     
     const getPointFromEvent = (e: React.MouseEvent<HTMLCanvasElement>): AnnotationPoint => {
@@ -59,7 +59,6 @@ const Textbook: React.FC<TextbookProps> = ({
         return { x, y };
     };
 
-    // Отрисовка всех сохраненных аннотаций
     const drawAllAnnotations = useCallback(() => {
         const canvas = annotationCanvasRef.current;
         const ctx = getContext(canvas);
@@ -94,14 +93,12 @@ const Textbook: React.FC<TextbookProps> = ({
         ctx.globalAlpha = 1.0;
     }, [annotations, currentPage, zoom, pdfRendered]);
 
-    // Перерисовка при изменении аннотаций, страницы или зума
     useEffect(() => {
         if (pdfRendered) {
             drawAllAnnotations();
         }
     }, [zoom, currentPage, annotations, drawAllAnnotations, pdfRendered]);
 
-    // Обработка загрузки файла
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (file && file.type === 'application/pdf') {
@@ -113,7 +110,6 @@ const Textbook: React.FC<TextbookProps> = ({
         }
     };
     
-    // Рисование - начало
     const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
         if (!selectedTextbook) return;
         
@@ -127,7 +123,6 @@ const Textbook: React.FC<TextbookProps> = ({
         };
     };
 
-    // Рисование - процесс
     const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
         if (!isDrawing || !selectedTextbook || !currentDrawingRef.current) return;
         
@@ -154,7 +149,6 @@ const Textbook: React.FC<TextbookProps> = ({
         ctx.stroke();
     };
     
-    // Рисование - конец
     const stopDrawing = () => {
         if (!isDrawing || !currentDrawingRef.current) return;
         
@@ -176,7 +170,6 @@ const Textbook: React.FC<TextbookProps> = ({
         onUpdateAnnotations(newStore);
     };
 
-    // Успешная загрузка документа
     const onDocumentLoadSuccess = ({ numPages: nextNumPages }: { numPages: number }) => {
         console.log('📄 PDF loaded successfully:', nextNumPages, 'pages');
         setNumPages(nextNumPages);
@@ -189,19 +182,16 @@ const Textbook: React.FC<TextbookProps> = ({
         }
     };
 
-    // Ошибка загрузки документа
     const onDocumentLoadError = (error: Error) => {
         console.error('❌ PDF load error:', error);
         setLoading(false);
         setError('Не удалось загрузить PDF. Проверьте файл или попробуйте другой.');
     };
 
-    // Успешный рендер страницы
     const onPageRenderSuccess = () => {
         console.log('✅ Page rendered successfully');
         setPdfRendered(true);
         
-        // Находим canvas PDF и устанавливаем размер нашего canvas
         const pdfContainer = containerRef.current;
         if (pdfContainer) {
             const pdfCanvas = pdfContainer.querySelector('canvas');
@@ -209,13 +199,11 @@ const Textbook: React.FC<TextbookProps> = ({
                 const { width, height } = pdfCanvas.getBoundingClientRect();
                 setCanvasSize({ width, height });
                 
-                // Небольшая задержка для гарантии отрисовки
                 setTimeout(() => drawAllAnnotations(), 50);
             }
         }
     };
 
-    // Очистка аннотаций текущей страницы
     const clearCurrentPageAnnotations = () => {
         if (!window.confirm('Удалить все аннотации на этой странице?')) return;
         
@@ -224,7 +212,6 @@ const Textbook: React.FC<TextbookProps> = ({
         onUpdateAnnotations(newStore);
     };
 
-    // Кнопка тулбара
     const ToolbarButton: React.FC<{
         label: string;
         active: boolean;
@@ -235,10 +222,10 @@ const Textbook: React.FC<TextbookProps> = ({
         <button
             onClick={onClick}
             disabled={disabled}
-            className={`p-2.5 rounded-lg transition-all duration-200 ${
+            className={`p-3 rounded-xl transition-all duration-200 ${
                 active 
-                    ? 'bg-blue-500 text-white shadow-md' 
-                    : 'hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300'
+                    ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg scale-105' 
+                    : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300'
             } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
             aria-label={label}
             title={label}
@@ -247,65 +234,84 @@ const Textbook: React.FC<TextbookProps> = ({
         </button>
     );
 
-    // Тулбар
     const Toolbar: React.FC = () => (
-        <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-2 p-2 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
             {/* Инструменты рисования */}
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2 px-2">
                 <ToolbarButton 
                     label="Ручка" 
                     active={tool === 'pen'} 
                     onClick={() => setTool('pen')}
-                    icon={<PenIcon className="w-5 h-5"/>}
+                    icon={
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                    }
                 />
                 <ToolbarButton 
                     label="Маркер" 
                     active={tool === 'highlighter'} 
                     onClick={() => setTool('highlighter')}
-                    icon={<HighlighterIcon className="w-5 h-5"/>}
+                    icon={
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                    }
                 />
                 <ToolbarButton 
                     label="Ластик" 
                     active={tool === 'eraser'} 
                     onClick={() => setTool('eraser')}
-                    icon={<EraserIcon className="w-5 h-5"/>}
+                    icon={
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    }
                 />
             </div>
 
             <div className="w-px h-8 bg-gray-300 dark:bg-gray-600"></div>
 
             {/* Цвет */}
-            <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Цвет:</span>
-                <input 
-                    type="color" 
-                    value={color} 
-                    onChange={e => setColor(e.target.value)} 
-                    disabled={tool === 'eraser'}
-                    className="w-10 h-10 cursor-pointer rounded-md border-2 border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                />
+            <div className="flex items-center gap-2 px-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                    <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                    </svg>
+                    <input 
+                        type="color" 
+                        value={color} 
+                        onChange={e => setColor(e.target.value)} 
+                        disabled={tool === 'eraser'}
+                        className="w-12 h-10 cursor-pointer rounded-lg border-2 border-gray-300 dark:border-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                    />
+                </label>
             </div>
 
             <div className="w-px h-8 bg-gray-300 dark:bg-gray-600"></div>
 
             {/* Зум */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-2">
                 <button 
                     onClick={() => setZoom(z => Math.max(0.5, z - 0.2))} 
-                    className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     title="Уменьшить"
                 >
-                    <ZoomOutIcon className="w-5 h-5"/>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7" />
+                    </svg>
                 </button>
-                <span className="w-16 text-center font-semibold text-sm text-gray-700 dark:text-gray-300">
+                <span className="w-16 text-center font-semibold text-sm text-gray-700 dark:text-gray-300 px-2">
                     {Math.round(zoom * 100)}%
                 </span>
                 <button 
                     onClick={() => setZoom(z => Math.min(3, z + 0.2))} 
-                    className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                    className="p-2 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
                     title="Увеличить"
                 >
-                    <ZoomInIcon className="w-5 h-5"/>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                    </svg>
                 </button>
             </div>
 
@@ -315,22 +321,23 @@ const Textbook: React.FC<TextbookProps> = ({
             <button
                 onClick={clearCurrentPageAnnotations}
                 disabled={!annotations[currentPage] || annotations[currentPage].length === 0}
-                className="flex items-center gap-2 px-3 py-2 rounded-lg bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mx-2"
                 title="Очистить аннотации на странице"
             >
-                <TrashIcon className="w-5 h-5"/>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
                 <span className="text-sm font-medium">Очистить</span>
             </button>
         </div>
     );
     
-    // Пагинация
     const Pagination: React.FC = () => (
-        <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-md border border-gray-200 dark:border-gray-700">
+        <div className="flex items-center gap-3 p-3 bg-white dark:bg-gray-800 rounded-2xl shadow-lg border border-gray-200 dark:border-gray-700">
             <button 
                 onClick={() => setCurrentPage(1)} 
                 disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 title="Первая страница"
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -341,7 +348,7 @@ const Textbook: React.FC<TextbookProps> = ({
             <button 
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} 
                 disabled={currentPage === 1}
-                className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 title="Предыдущая"
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -349,7 +356,7 @@ const Textbook: React.FC<TextbookProps> = ({
                 </svg>
             </button>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-3">
                 <input
                     type="number"
                     min={1}
@@ -361,15 +368,15 @@ const Textbook: React.FC<TextbookProps> = ({
                             setCurrentPage(page);
                         }
                     }}
-                    className="w-16 px-2 py-1 text-center border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"
+                    className="w-20 px-3 py-2 text-center border-2 border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white font-medium focus:border-blue-500 focus:outline-none"
                 />
-                <span className="text-gray-600 dark:text-gray-400">из {numPages || 0}</span>
+                <span className="text-gray-600 dark:text-gray-400 font-medium">из {numPages || 0}</span>
             </div>
 
             <button 
                 onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))} 
                 disabled={currentPage === numPages || numPages === 0}
-                className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 title="Следующая"
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -380,7 +387,7 @@ const Textbook: React.FC<TextbookProps> = ({
             <button 
                 onClick={() => setCurrentPage(numPages)} 
                 disabled={currentPage === numPages || numPages === 0}
-                className="p-2 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="p-2.5 rounded-xl bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
                 title="Последняя страница"
             >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,18 +398,20 @@ const Textbook: React.FC<TextbookProps> = ({
     );
 
     return (
-        <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-6 rounded-xl shadow-lg h-full flex flex-col">
+        <div className="bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-800 p-4 rounded-xl shadow-lg h-full flex flex-col">
             {/* Хедер с выбором учебника */}
-            <div className="flex-shrink-0 mb-4 flex items-center gap-3">
+            <div className="flex-shrink-0 mb-3 flex items-center gap-3">
                 <div className="flex-1 relative">
                     <select
                         value={selectedTextbook?.name || ''}
                         onChange={(e) => {
-                            onSelectTextbook(e.target.value || null);
+                            const value = e.target.value;
+                            console.log('📚 Textbook selected:', value);
+                            onSelectTextbook(value || null);
                             setPdfRendered(false);
                             setError('');
                         }}
-                        className="w-full bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-lg py-2.5 px-4 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none"
+                        className="w-full bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-600 rounded-xl py-3 px-4 pr-10 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent appearance-none shadow-sm"
                         disabled={textbooks.length === 0}
                     >
                         {textbooks.length === 0 && <option value="">Загрузите учебник</option>}
@@ -418,9 +427,11 @@ const Textbook: React.FC<TextbookProps> = ({
                 
                 <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2.5 px-5 rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+                    className="flex items-center gap-2 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 shadow-md hover:shadow-lg"
                 >
-                    <UploadIcon className="w-5 h-5"/>
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
                     <span>Загрузить PDF</span>
                 </button>
                 <input 
@@ -435,28 +446,29 @@ const Textbook: React.FC<TextbookProps> = ({
             {selectedTextbook ? (
                 <>
                     {/* Тулбар */}
-                    <div className="flex justify-center mb-4">
+                    <div className="flex justify-center mb-3">
                         <Toolbar />
                     </div>
                     
-                    {/* PDF Viewer */}
-                    <div className="flex-grow overflow-auto bg-gray-200 dark:bg-gray-900 rounded-lg p-4 flex justify-center items-start">
+                    {/* PDF Viewer - УВЕЛИЧЕНА ВЫСОТА */}
+                    <div className="flex-grow overflow-auto bg-gray-200 dark:bg-gray-900 rounded-xl p-4 flex justify-center items-start" style={{ minHeight: '75vh' }}>
                         <div 
                             ref={containerRef}
-                            className="relative shadow-2xl"
+                            className="relative shadow-2xl rounded-lg overflow-hidden"
                             style={{ 
                                 width: canvasSize.width || 'auto',
                                 height: canvasSize.height || 'auto'
                             }}
                         >
                             {loading && (
-                                <div className="flex items-center justify-center p-12">
-                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                                <div className="flex flex-col items-center justify-center p-12">
+                                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-500 border-t-transparent"></div>
+                                    <p className="mt-4 text-gray-600 dark:text-gray-400 font-medium">Загрузка PDF...</p>
                                 </div>
                             )}
                             
                             {error && (
-                                <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-800 rounded-lg p-6 m-4">
+                                <div className="bg-red-50 dark:bg-red-900/20 border-2 border-red-300 dark:border-red-800 rounded-xl p-6 m-4">
                                     <div className="flex items-center gap-3">
                                         <svg className="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -470,8 +482,8 @@ const Textbook: React.FC<TextbookProps> = ({
                                 file={selectedTextbook.url}
                                 onLoadSuccess={onDocumentLoadSuccess}
                                 onLoadError={onDocumentLoadError}
-                                loading={<div className="p-8 text-center text-gray-600 dark:text-gray-400">Загрузка PDF...</div>}
-                                error={<div className="p-8 text-center text-red-600 dark:text-red-400">Ошибка загрузки PDF</div>}
+                                loading={null}
+                                error={null}
                             >
                                 <Page
                                     pageNumber={currentPage}
@@ -479,17 +491,16 @@ const Textbook: React.FC<TextbookProps> = ({
                                     onRenderSuccess={onPageRenderSuccess}
                                     renderAnnotationLayer={false}
                                     renderTextLayer={false}
-                                    className="shadow-xl"
+                                    className="shadow-2xl rounded-lg"
                                 />
                             </Document>
                             
-                            {/* Canvas для аннотаций */}
                             {pdfRendered && (
                                 <canvas 
                                     ref={annotationCanvasRef}
                                     width={canvasSize.width}
                                     height={canvasSize.height}
-                                    className="absolute top-0 left-0 cursor-crosshair"
+                                    className="absolute top-0 left-0"
                                     style={{
                                         cursor: tool === 'pen' ? 'crosshair' : tool === 'highlighter' ? 'cell' : tool === 'eraser' ? 'not-allowed' : 'default'
                                     }}
@@ -504,30 +515,31 @@ const Textbook: React.FC<TextbookProps> = ({
                     
                     {/* Пагинация */}
                     {numPages > 1 && (
-                        <div className="flex justify-center mt-4">
+                        <div className="flex justify-center mt-3">
                             <Pagination />
                         </div>
                     )}
                 </>
             ) : (
-                // Заглушка
                 <div className="flex-grow flex flex-col items-center justify-center text-center p-8">
-                    <div className="bg-blue-100 dark:bg-blue-900/30 rounded-full p-8 mb-6">
-                        <svg className="w-20 h-20 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                    <div className="bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-900/30 dark:to-purple-900/30 rounded-full p-12 mb-6 shadow-lg">
+                        <svg className="w-24 h-24 text-blue-500 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                         </svg>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-3">
+                    <h3 className="text-3xl font-bold text-gray-800 dark:text-white mb-3">
                         Учебник не выбран
                     </h3>
-                    <p className="text-gray-600 dark:text-gray-400 max-w-md mb-6">
-                        Загрузите PDF-файл учебника и выберите его из списка, чтобы начать совместное изучение с партнером
+                    <p className="text-gray-600 dark:text-gray-400 max-w-md mb-8 text-lg">
+                        Загрузите PDF-файл учебника и выберите его из списка
                     </p>
                     <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl"
+                        className="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-bold py-4 px-8 rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105"
                     >
-                        <UploadIcon className="w-6 h-6"/>
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                        </svg>
                         <span>Загрузить первый учебник</span>
                     </button>
                 </div>

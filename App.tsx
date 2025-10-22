@@ -60,6 +60,7 @@ const WorkspaceContent: React.FC = () => {
     updateSharedVocabulary,
     updateSharedTextbooks,
     updateSharedCurrentPage,
+    updateSharedSelectedTextbook,
     updateLessonTasks,
     messages,
     sendMessage
@@ -125,19 +126,15 @@ const WorkspaceContent: React.FC = () => {
     }
   };
 
-  // ИСПРАВЛЕНО: Полностью переработанная функция
   const handleAnswerChange = (taskId: string, itemIndex: number, answer: string, answerIndex?: number) => {
     console.log('📝 handleAnswerChange called:', { taskId, itemIndex, answer, answerIndex });
     
-    // Создаем глубокую копию
     const newAnswersStore: UserAnswersStore = JSON.parse(JSON.stringify(userAnswers || {}));
 
-    // Инициализируем структуру если нужно
     if (!newAnswersStore[taskId]) {
       newAnswersStore[taskId] = {};
     }
     
-    // Конвертируем itemIndex в строку для Firestore
     const itemKey = String(itemIndex);
     
     if (!newAnswersStore[taskId][itemKey]) {
@@ -147,27 +144,22 @@ const WorkspaceContent: React.FC = () => {
     const itemAnswers = newAnswersStore[taskId][itemKey];
 
     if (answerIndex !== undefined) {
-      // Для fill-in-the-blank (множественные пропуски)
       if (!itemAnswers.userAnswers) {
         itemAnswers.userAnswers = [];
       }
       
-      // КРИТИЧНО: Заполняем пропуски пустыми строками, чтобы избежать undefined
       while (itemAnswers.userAnswers.length <= answerIndex) {
         itemAnswers.userAnswers.push('');
       }
       
-      // Устанавливаем значение
       itemAnswers.userAnswers[answerIndex] = answer || '';
       
     } else {
-      // Для translate (один ответ)
       itemAnswers.userAnswer = answer || '';
     }
     
     console.log('💾 New answers structure:', JSON.stringify(newAnswersStore, null, 2));
     
-    // Сохраняем
     updateUserAnswers(newAnswersStore);
   };
 
@@ -287,6 +279,10 @@ const WorkspaceContent: React.FC = () => {
       ];
       
       updateSharedTextbooks(textbooksData);
+      
+      // ИСПРАВЛЕНИЕ: Автоматически выбираем загруженный учебник
+      updateSharedSelectedTextbook(file.name);
+      
       showNotification(`Учебник "${file.name}" загружен!`, 'success');
       
     } catch (error) {
@@ -365,7 +361,7 @@ const WorkspaceContent: React.FC = () => {
           onUpdateSharedFiles={updateSharedFiles}
           onUpdateSharedInstruction={updateSharedInstruction}
           onAddTextbook={handleAddTextbook}
-          onSelectTextbook={(name) => updateSharedCurrentPage(1)}
+          onSelectTextbook={updateSharedSelectedTextbook}
           currentPage={sharedData?.currentPage || 1}
           onPageChange={handlePageChange}
           onUpdateSharedAnnotations={updateSharedAnnotations}

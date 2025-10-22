@@ -345,6 +345,7 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
   };
 
   const updateSharedSelectedTextbook = (name: string | null) => {
+    console.log('📚 Updating selected textbook to:', name);
     updatePairData({ selectedTextbookName: name });
   };
   
@@ -374,7 +375,7 @@ export const useLessonSync = (lessonId?: string, pairId?: string) => {
     updateSharedVocabulary,
     updateSharedTextbooks,
     updateSharedCurrentPage,
-    updateSharedSelectedTextbook, 
+    updateSharedSelectedTextbook,
     updateLessonTasks,
     updateUserAnswers,
     updateSharedAnnotations, 
