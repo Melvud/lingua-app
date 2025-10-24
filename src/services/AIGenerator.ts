@@ -1,5 +1,9 @@
+// src/services/AIGenerator.ts
 import { GoogleGenAI, Type } from "@google/genai";
 import type { Task, VocabularyItem } from '../types';
+// Добавляем импорты Firestore для кэширования
+import { db } from '../config/firebase'; 
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 console.log('🔑 API Key from env:', process.env.API_KEY ? 'EXISTS' : 'NOT FOUND');
 
@@ -94,6 +98,73 @@ async function retryWithBackoff<T>(
     throw new Error('Max retries reached');
 }
 
+/**
+ * Простая функция хэширования для создания ключа кэша.
+ */
+const simpleHash = (str: string): string => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+  return 'cache_' + Math.abs(hash).toString(16);
+};
+
+/**
+ * НОВАЯ ФУНКЦИЯ-ОБЕРТКА ДЛЯ КЭШИРОВАНИЯ
+ * Проверяет наличие ответа в кэше Firestore перед вызовом generateTasksFromText.
+ */
+export const getCachedOrGenerateTasks = async (
+    userPrompt: string,
+    contextText: string,
+    imageBase64?: string
+): Promise<AIResponse> => {
+    
+    // 1. Создаем уникальный ключ кэша
+    const contextIdentifier = imageBase64 
+      ? (contextText + imageBase64.substring(0, 500)) // Хэшируем только часть base64
+      : contextText;
+      
+    const cacheKey = simpleHash(userPrompt + contextIdentifier);
+    const cacheRef = doc(db, 'generationCache', cacheKey);
+
+    // 2. Проверяем кэш
+    try {
+        const cacheSnap = await getDoc(cacheRef);
+        if (cacheSnap.exists()) {
+            console.log('✅ ЗАГРУЖЕНО ИЗ КЭША:', cacheKey);
+            const data = cacheSnap.data();
+            // Возвращаем данные из кэша
+            return {
+                tasks: data.tasks as Task[],
+                vocabulary: data.vocabulary as VocabularyItem[]
+            };
+        }
+    } catch (e) {
+        console.warn('Ошибка чтения кэша', e);
+        // В случае ошибки чтения кэша, просто продолжаем генерацию
+    }
+    
+    // 3. Если в кэше нет (CACHE MISS) - генерируем
+    console.log('CACHE MISS. 🤖 Генерируем новый ответ...');
+    const result = await generateTasksFromText(userPrompt, contextText, imageBase64);
+
+    // 4. Сохраняем в кэш (асинхронно, не блокируем возврат)
+    if (result.tasks.length > 0 || result.vocabulary.length > 0) {
+        setDoc(cacheRef, {
+            ...result,
+            createdAt: serverTimestamp()
+        }).catch(e => console.error("Не удалось сохранить в кэш", e));
+    }
+
+    return result;
+};
+
+
+/**
+ * Оригинальная функция генерации, теперь вызывается из getCachedOrGenerateTasks
+ */
 export const generateTasksFromText = async (
     userPrompt: string,
     contextText: string,
