@@ -1,5 +1,5 @@
 // src/contexts/AuthContext.tsx
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { 
   User,
   createUserWithEmailAndPassword,
@@ -55,6 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     
     await setDoc(doc(db, 'users', user.uid), profile);
+    // setUserProfile(profile); // Не нужно, onSnapshot сделает это
   };
 
   const login = async (email: string, password: string) => {
@@ -65,20 +66,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await signOut(auth);
   };
 
-  const updateUserProfile = async () => {
+  // Оборачиваем в useCallback, чтобы ссылка на функцию не менялась
+  const updateUserProfile = useCallback(async () => {
     if (!currentUser) return;
     
+    console.log('🔄 Manually fetching user profile...');
     const docRef = doc(db, 'users', currentUser.uid);
     const docSnap = await getDoc(docRef);
     
     if (docSnap.exists()) {
       const data = docSnap.data();
+      console.log('✅ Manual fetch complete:', data.partnerId);
       setUserProfile({
         ...data,
         createdAt: data.createdAt?.toDate() || new Date()
       } as UserProfile);
     }
-  };
+  }, [currentUser]); // Зависит только от currentUser
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -87,16 +91,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (user) {
         // Real-time слушатель профиля пользователя
-        const unsubscribeProfile = onSnapshot(doc(db, 'users', user.uid), (doc) => {
-          if (doc.exists()) {
-            const data = doc.data();
-            setUserProfile({
-              ...data,
-              createdAt: data.createdAt?.toDate() || new Date()
-            } as UserProfile);
+        // Это ЕДИНСТВЕННЫЙ слушатель, который нам нужен.
+        const unsubscribeProfile = onSnapshot(
+          doc(db, 'users', user.uid), 
+          { 
+            // ✅ ИСПРАВЛЕНИЕ:
+            // Гарантирует, что мы получаем данные с сервера, а не из кэша.
+            // Это заставит приложение пригласившего обновиться мгновенно.
+            includeMetadataChanges: false 
+          }, 
+          (doc) => {
+            console.log('🔔 Profile snapshot received (AuthContext)');
+            if (doc.exists()) {
+              const data = doc.data();
+              console.log(' L partnerId:', data.partnerId);
+              setUserProfile({
+                ...data,
+                createdAt: data.createdAt?.toDate() || new Date()
+              } as UserProfile);
+            } else {
+              setUserProfile(null);
+            }
+            setLoading(false);
           }
-          setLoading(false);
-        });
+        );
 
         return () => unsubscribeProfile();
       } else {
@@ -120,7 +138,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

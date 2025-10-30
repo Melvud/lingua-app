@@ -53,30 +53,31 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [textbooks, setTextbooks] = useState<Array<{ name: string; url: string }>>([]);
 
-  // Real-time слушатель для partnerId
-  useEffect(() => {
-    if (!currentUser) return;
+  // ❌ =========================================
+  // ❌ ИСПРАВЛЕНИЕ: ЭТОТ БЛОК УДАЛЕН (строки ~86-97)
+  // Он дублировал логику AuthContext и приводил к ошибкам.
+  // useEffect(() => {
+  //   if (!currentUser) return;
+  //   const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
+  //     // ...
+  //   });
+  //   return () => unsubscribe();
+  // }, [currentUser?.uid]);
+  // ❌ =========================================
 
-    const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        if (data.partnerId && data.partnerId !== userProfile?.partnerId) {
-          updateUserProfile();
-        }
-      }
-    });
-
-    return () => unsubscribe();
-  }, [currentUser?.uid]);
 
   // Загружаем инфо о партнере
+  // Этот useEffect теперь будет корректно срабатывать,
+  // т.к. userProfile будет обновляться из AuthContext.
   useEffect(() => {
     if (userProfile?.partnerId) {
+      console.log('🔄 User profile changed, loading partner info...');
       loadPartnerInfo();
     } else {
+      console.log('🔄 User profile changed, clearing partner info.');
       setPartnerInfo(null);
     }
-  }, [userProfile?.partnerId]);
+  }, [userProfile?.partnerId]); // Зависимость ПРАВИЛЬНАЯ
 
   // Real-time слушатель входящих запросов
   useEffect(() => {
@@ -101,7 +102,10 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
 
   // Загружаем уроки пары
   useEffect(() => {
-    if (!userProfile?.pairId) return;
+    if (!userProfile?.pairId) {
+        setLessons([]); // Очищаем уроки, если нет pairId
+        return;
+    }
 
     const q = query(
       collection(db, 'lessons'),
@@ -128,7 +132,11 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
 
   // Загружаем общие данные пары
   useEffect(() => {
-    if (!userProfile?.pairId) return;
+    if (!userProfile?.pairId) {
+        setVocabulary([]); // Очищаем данные, если нет pairId
+        setTextbooks([]);
+        return;
+    }
 
     const q = query(
       collection(db, 'pairs'),
@@ -140,6 +148,9 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
         const data = snapshot.docs[0].data();
         setVocabulary(data.sharedData?.vocabulary || []);
         setTextbooks(data.sharedData?.textbooks || []);
+      } else {
+        setVocabulary([]);
+        setTextbooks([]);
       }
     });
 
@@ -149,11 +160,18 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   const loadPartnerInfo = async () => {
     if (!userProfile?.partnerId) return;
 
-    const docRef = doc(db, 'users', userProfile.partnerId);
-    const docSnap = await getDoc(docRef);
+    try {
+      const docRef = doc(db, 'users', userProfile.partnerId);
+      const docSnap = await getDoc(docRef);
 
-    if (docSnap.exists()) {
-      setPartnerInfo(docSnap.data());
+      if (docSnap.exists()) {
+        setPartnerInfo(docSnap.data());
+      } else {
+        console.warn('Partner document not found');
+        setPartnerInfo(null); // Если партнер не найден
+      }
+    } catch (error) {
+      console.error('Error loading partner info:', error);
     }
   };
 
@@ -220,10 +238,12 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     if (!currentUser) return;
 
     try {
+      // 1. Обновляем запрос
       await updateDoc(doc(db, 'pairRequests', request.id), {
         status: 'accepted'
       });
 
+      // 2. Создаем пару
       const pairId = `pair_${currentUser.uid}_${request.fromUserId}`;
       await addDoc(collection(db, 'pairs'), {
         pairId,
@@ -239,22 +259,29 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
         }
       });
 
+      // 3. Обновляем текущего пользователя (принявшего)
+      // Эта операция УСПЕШНА (благодаря)
       await updateDoc(doc(db, 'users', currentUser.uid), {
         partnerId: request.fromUserId,
         pairId
       });
 
+      // 4. Обновляем пригласившего пользователя
+      // Эта операция БЫЛА ПРОВАЛЬНОЙ, но с новыми правилами firestore.rules УСПЕШНА
       await updateDoc(doc(db, 'users', request.fromUserId), {
         partnerId: currentUser.uid,
         pairId
       });
 
-      await updateUserProfile();
+      // 5. Ручное обновление не нужно, т.к. onSnapshot в AuthContext
+      //    сам поймает изменение (currentUser.uid)
+      // await updateUserProfile(); 
+      // Вместо этого AuthContext сам обновит userProfile
 
       alert('Запрос принят! Теперь вы в паре!');
     } catch (error) {
       console.error('Error accepting request:', error);
-      alert('Ошибка принятия запроса');
+      alert('Ошибка принятия запроса. Проверьте консоль на ошибки "permission-denied".');
     }
   };
 
@@ -294,19 +321,29 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
 
     if (!confirm('Вы уверены, что хотите разорвать пару?')) return;
 
+    const currentPartnerId = userProfile.partnerId; // Сохраняем ID партнера
+
     try {
+      // 1. Обновляем текущего пользователя
+      // Эта операция УСПЕШНА (благодаря)
       await updateDoc(doc(db, 'users', currentUser.uid), {
         partnerId: null,
         pairId: null
       });
 
-      await updateDoc(doc(db, 'users', userProfile.partnerId), {
+      // 2. Обновляем бывшего партнера
+      // Эта операция БЫЛА ПРОВАЛЬНОЙ, но с новыми правилами firestore.rules УСПЕШНА
+      await updateDoc(doc(db, 'users', currentPartnerId), {
         partnerId: null,
         pairId: null
       });
 
-      await updateUserProfile();
-      setPartnerInfo(null);
+      // 3. setPartnerInfo(null) не нужен,
+      //    т.к. onSnapshot в AuthContext поймает изменение
+      //    и useEffect [l: 99] сам вызовет setPartnerInfo(null).
+      // await updateUserProfile(); // Также не нужно
+      // setPartnerInfo(null);
+
     } catch (error) {
       console.error('Break pair error:', error);
       alert('Ошибка разрыва пары');
@@ -314,76 +351,57 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   };
 
   const handleCreateLesson = async () => {
-  console.log('🎯 ========== CREATE LESSON STARTED ==========');
-  console.log('Lesson name:', newLessonName);
-  console.log('User profile:', userProfile);
-  console.log('Current user:', currentUser);
-  console.log('PairId:', userProfile?.pairId);
-
-  if (!newLessonName.trim()) {
-    setLessonNameError('Введите название урока');
-    return;
-  }
-
-  if (!userProfile?.pairId || !currentUser) {
-    console.error('❌ Missing pairId or currentUser');
-    alert('Ошибка: отсутствуют данные пары');
-    return;
-  }
-
-  // Проверка на уникальность названия
-  const existingLesson = lessons.find(
-    l => l.name.toLowerCase() === newLessonName.trim().toLowerCase()
-  );
-
-  if (existingLesson) {
-    setLessonNameError('Урок с таким названием уже существует');
-    return;
-  }
-
-  setCreatingLesson(true);
-
-  try {
-    console.log('📝 Creating lesson in Firestore...');
-    
-    const now = new Date();
-    const lessonData = {
-      pairId: userProfile.pairId,
-      name: newLessonName.trim(),
-      createdAt: now,
-      updatedAt: now,
-      createdBy: currentUser.uid,
-      tasks: [],
-      completedTasksCount: 0,
-      totalTasksCount: 0
-    };
-
-    console.log('📦 Lesson data:', JSON.stringify(lessonData, null, 2));
-
-    const docRef = await addDoc(collection(db, 'lessons'), lessonData);
-    
-    console.log('✅ Lesson created successfully with ID:', docRef.id);
-    
-    // Закрываем модальное окно
-    setShowNewLessonModal(false);
-    setNewLessonName('');
-    setLessonNameError('');
-    
-    alert('Урок успешно создан!');
-    
-    console.log('🎯 ========== CREATE LESSON COMPLETED ==========');
-  } catch (error: any) {
-    console.error('❌ ========== CREATE LESSON FAILED ==========');
-    console.error('Error object:', error);
-    console.error('Error message:', error.message);
-    console.error('Error code:', error.code);
-    console.error('Error stack:', error.stack);
-    
-    alert('Ошибка создания урока: ' + (error.message || 'Неизвестная ошибка'));
-  } finally {
-    setCreatingLesson(false);
-  }
-};
+    console.log('🎯 ========== CREATE LESSON STARTED ==========');
+    // ... (остальной код создания урока без изменений)
+    if (!newLessonName.trim()) {
+      setLessonNameError('Введите название урока');
+      return;
+    }
+    if (!userProfile?.pairId || !currentUser) {
+      console.error('❌ Missing pairId or currentUser');
+      alert('Ошибка: отсутствуют данные пары');
+      return;
+    }
+    const existingLesson = lessons.find(
+      l => l.name.toLowerCase() === newLessonName.trim().toLowerCase()
+    );
+    if (existingLesson) {
+      setLessonNameError('Урок с таким названием уже существует');
+      return;
+    }
+    setCreatingLesson(true);
+    try {
+      console.log('📝 Creating lesson in Firestore...');
+      const now = new Date();
+      const lessonData = {
+        pairId: userProfile.pairId,
+        name: newLessonName.trim(),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: currentUser.uid,
+        tasks: [],
+        completedTasksCount: 0,
+        totalTasksCount: 0
+      };
+      console.log('📦 Lesson data:', JSON.stringify(lessonData, null, 2));
+      const docRef = await addDoc(collection(db, 'lessons'), lessonData);
+      console.log('✅ Lesson created successfully with ID:', docRef.id);
+      setShowNewLessonModal(false);
+      setNewLessonName('');
+      setLessonNameError('');
+      alert('Урок успешно создан!');
+      console.log('🎯 ========== CREATE LESSON COMPLETED ==========');
+    } catch (error: any) {
+      console.error('❌ ========== CREATE LESSON FAILED ==========');
+      console.error('Error object:', error);
+      console.error('Error message:', error.message);
+      console.error('Error code:', error.code);
+      console.error('Error stack:', error.stack);
+      alert('Ошибка создания урока: ' + (error.message || 'Неизвестная ошибка'));
+    } finally {
+      setCreatingLesson(false);
+    }
+  };
 
   const formatDate = (date: any) => {
     if (!date) return '';
@@ -396,7 +414,10 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   };
 
   // Если нет партнера - показываем форму поиска
-  if (!partnerInfo) {
+  // ИСПРАВЛЕНИЕ: Мы должны проверять userProfile.partnerId, а не partnerInfo
+  // т.к. partnerInfo - это асинхронное состояние, которое будет
+  // загружено ПОСЛЕ того, как userProfile обновится.
+  if (!userProfile?.partnerId) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
         <header className="bg-white dark:bg-gray-800 shadow-md">
@@ -551,7 +572,22 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     );
   }
 
-  // Главный экран с партнером - продолжение в следующем сообщении...
+  // Главный экран с партнером
+  // Показываем "Загрузка..." если partnerId есть, но partnerInfo еще не загрузилось
+  if (!partnerInfo) {
+    return (
+        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 text-center">
+                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+                <p className="text-gray-700 dark:text-gray-300">
+                    Загрузка данных партнера...
+                </p>
+            </div>
+        </div>
+    );
+  }
+
+  // Главный экран с партнером - продолжение...
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Шапка */}
