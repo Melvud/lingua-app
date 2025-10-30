@@ -53,31 +53,16 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   const [vocabulary, setVocabulary] = useState<VocabularyItem[]>([]);
   const [textbooks, setTextbooks] = useState<Array<{ name: string; url: string }>>([]);
 
-  // ❌ =========================================
-  // ❌ ИСПРАВЛЕНИЕ: ЭТОТ БЛОК УДАЛЕН (строки ~86-97)
-  // Он дублировал логику AuthContext и приводил к ошибкам.
-  // useEffect(() => {
-  //   if (!currentUser) return;
-  //   const unsubscribe = onSnapshot(doc(db, 'users', currentUser.uid), (doc) => {
-  //     // ...
-  //   });
-  //   return () => unsubscribe();
-  // }, [currentUser?.uid]);
-  // ❌ =========================================
-
-
-  // Загружаем инфо о партнере
-  // Этот useEffect теперь будет корректно срабатывать,
-  // т.к. userProfile будет обновляться из AuthContext.
+  // ✅ ИСПРАВЛЕНИЕ: Загружаем информацию о партнере
   useEffect(() => {
     if (userProfile?.partnerId) {
-      console.log('🔄 User profile changed, loading partner info...');
+      console.log('🔄 Loading partner info for:', userProfile.partnerId);
       loadPartnerInfo();
     } else {
-      console.log('🔄 User profile changed, clearing partner info.');
+      console.log('🔄 No partner, clearing partner info');
       setPartnerInfo(null);
     }
-  }, [userProfile?.partnerId]); // Зависимость ПРАВИЛЬНАЯ
+  }, [userProfile?.partnerId]);
 
   // Real-time слушатель входящих запросов
   useEffect(() => {
@@ -103,8 +88,8 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   // Загружаем уроки пары
   useEffect(() => {
     if (!userProfile?.pairId) {
-        setLessons([]); // Очищаем уроки, если нет pairId
-        return;
+      setLessons([]);
+      return;
     }
 
     const q = query(
@@ -133,9 +118,9 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
   // Загружаем общие данные пары
   useEffect(() => {
     if (!userProfile?.pairId) {
-        setVocabulary([]); // Очищаем данные, если нет pairId
-        setTextbooks([]);
-        return;
+      setVocabulary([]);
+      setTextbooks([]);
+      return;
     }
 
     const q = query(
@@ -168,7 +153,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
         setPartnerInfo(docSnap.data());
       } else {
         console.warn('Partner document not found');
-        setPartnerInfo(null); // Если партнер не найден
+        setPartnerInfo(null);
       }
     } catch (error) {
       console.error('Error loading partner info:', error);
@@ -234,10 +219,15 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     }
   };
 
+  // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Принятие запроса
   const handleAcceptRequest = async (request: PairRequest) => {
     if (!currentUser) return;
 
     try {
+      console.log('🤝 ========== ACCEPTING PAIR REQUEST ==========');
+      console.log('👤 Current user:', currentUser.uid);
+      console.log('👥 Partner (requester):', request.fromUserId);
+
       // 1. Обновляем запрос
       await updateDoc(doc(db, 'pairRequests', request.id), {
         status: 'accepted'
@@ -255,33 +245,40 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
           vocabulary: [],
           currentPage: 1,
           files: [],
-          instruction: ''
+          instruction: '',
+          selectedTextbookName: null,
+          annotations: {}
         }
       });
+      console.log('✅ Pair document created with ID:', pairId);
 
       // 3. Обновляем текущего пользователя (принявшего)
-      // Эта операция УСПЕШНА (благодаря)
       await updateDoc(doc(db, 'users', currentUser.uid), {
         partnerId: request.fromUserId,
         pairId
       });
+      console.log('✅ Current user updated');
 
       // 4. Обновляем пригласившего пользователя
-      // Эта операция БЫЛА ПРОВАЛЬНОЙ, но с новыми правилами firestore.rules УСПЕШНА
       await updateDoc(doc(db, 'users', request.fromUserId), {
         partnerId: currentUser.uid,
         pairId
       });
+      console.log('✅ Partner user updated');
 
-      // 5. Ручное обновление не нужно, т.к. onSnapshot в AuthContext
-      //    сам поймает изменение (currentUser.uid)
-      // await updateUserProfile(); 
-      // Вместо этого AuthContext сам обновит userProfile
+      // 5. ✅ КРИТИЧНО: Принудительно обновляем профиль
+      console.log('🔄 Forcing profile refresh...');
+      await updateUserProfile();
+      console.log('✅ Profile refreshed successfully');
 
+      console.log('🎉 ========== PAIR CREATED SUCCESSFULLY ==========');
       alert('Запрос принят! Теперь вы в паре!');
-    } catch (error) {
-      console.error('Error accepting request:', error);
-      alert('Ошибка принятия запроса. Проверьте консоль на ошибки "permission-denied".');
+    } catch (error: any) {
+      console.error('❌ ========== ERROR ACCEPTING REQUEST ==========');
+      console.error('Error:', error);
+      console.error('Code:', error?.code);
+      console.error('Message:', error?.message);
+      alert('Ошибка принятия запроса: ' + (error?.message || 'Неизвестная ошибка'));
     }
   };
 
@@ -316,60 +313,72 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     alert('Ссылка скопирована!');
   };
 
+  // ✅ КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: Разрыв пары
   const handleBreakPair = async () => {
     if (!currentUser || !userProfile?.partnerId) return;
 
     if (!confirm('Вы уверены, что хотите разорвать пару?')) return;
 
-    const currentPartnerId = userProfile.partnerId; // Сохраняем ID партнера
+    const currentPartnerId = userProfile.partnerId;
 
     try {
+      console.log('💔 ========== BREAKING PAIR ==========');
+      console.log('👤 Current user:', currentUser.uid);
+      console.log('👥 Partner:', currentPartnerId);
+
       // 1. Обновляем текущего пользователя
-      // Эта операция УСПЕШНА (благодаря)
       await updateDoc(doc(db, 'users', currentUser.uid), {
         partnerId: null,
         pairId: null
       });
+      console.log('✅ Current user updated');
 
       // 2. Обновляем бывшего партнера
-      // Эта операция БЫЛА ПРОВАЛЬНОЙ, но с новыми правилами firestore.rules УСПЕШНА
       await updateDoc(doc(db, 'users', currentPartnerId), {
         partnerId: null,
         pairId: null
       });
+      console.log('✅ Partner updated');
 
-      // 3. setPartnerInfo(null) не нужен,
-      //    т.к. onSnapshot в AuthContext поймает изменение
-      //    и useEffect [l: 99] сам вызовет setPartnerInfo(null).
-      // await updateUserProfile(); // Также не нужно
-      // setPartnerInfo(null);
+      // 3. ✅ КРИТИЧНО: Принудительно обновляем профиль
+      console.log('🔄 Forcing profile refresh...');
+      await updateUserProfile();
+      console.log('✅ Profile refreshed successfully');
 
-    } catch (error) {
-      console.error('Break pair error:', error);
-      alert('Ошибка разрыва пары');
+      console.log('✅ ========== PAIR BROKEN SUCCESSFULLY ==========');
+      alert('Пара разорвана');
+    } catch (error: any) {
+      console.error('❌ ========== ERROR BREAKING PAIR ==========');
+      console.error('Error:', error);
+      alert('Ошибка разрыва пары: ' + (error?.message || 'Неизвестная ошибка'));
     }
   };
 
   const handleCreateLesson = async () => {
     console.log('🎯 ========== CREATE LESSON STARTED ==========');
-    // ... (остальной код создания урока без изменений)
+    
     if (!newLessonName.trim()) {
       setLessonNameError('Введите название урока');
       return;
     }
+    
     if (!userProfile?.pairId || !currentUser) {
       console.error('❌ Missing pairId or currentUser');
       alert('Ошибка: отсутствуют данные пары');
       return;
     }
+    
     const existingLesson = lessons.find(
       l => l.name.toLowerCase() === newLessonName.trim().toLowerCase()
     );
+    
     if (existingLesson) {
       setLessonNameError('Урок с таким названием уже существует');
       return;
     }
+    
     setCreatingLesson(true);
+    
     try {
       console.log('📝 Creating lesson in Firestore...');
       const now = new Date();
@@ -383,9 +392,11 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
         completedTasksCount: 0,
         totalTasksCount: 0
       };
+      
       console.log('📦 Lesson data:', JSON.stringify(lessonData, null, 2));
       const docRef = await addDoc(collection(db, 'lessons'), lessonData);
       console.log('✅ Lesson created successfully with ID:', docRef.id);
+      
       setShowNewLessonModal(false);
       setNewLessonName('');
       setLessonNameError('');
@@ -396,7 +407,6 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
       console.error('Error object:', error);
       console.error('Error message:', error.message);
       console.error('Error code:', error.code);
-      console.error('Error stack:', error.stack);
       alert('Ошибка создания урока: ' + (error.message || 'Неизвестная ошибка'));
     } finally {
       setCreatingLesson(false);
@@ -413,11 +423,12 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     });
   };
 
+  // ✅ ИСПРАВЛЕНИЕ: Правильная проверка наличия партнера
+  const hasPartner = !!userProfile?.partnerId;
+  const isLoadingPartner = hasPartner && !partnerInfo;
+
   // Если нет партнера - показываем форму поиска
-  // ИСПРАВЛЕНИЕ: Мы должны проверять userProfile.partnerId, а не partnerInfo
-  // т.к. partnerInfo - это асинхронное состояние, которое будет
-  // загружено ПОСЛЕ того, как userProfile обновится.
-  if (!userProfile?.partnerId) {
+  if (!hasPartner) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
         <header className="bg-white dark:bg-gray-800 shadow-md">
@@ -572,22 +583,21 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
     );
   }
 
-  // Главный экран с партнером
-  // Показываем "Загрузка..." если partnerId есть, но partnerInfo еще не загрузилось
-  if (!partnerInfo) {
+  // ✅ ИСПРАВЛЕНИЕ: Показываем загрузку пока партнер загружается
+  if (isLoadingPartner) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 text-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
-                <p className="text-gray-700 dark:text-gray-300">
-                    Загрузка данных партнера...
-                </p>
-            </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-700 dark:text-gray-300">
+            Загрузка данных партнера...
+          </p>
         </div>
+      </div>
     );
   }
 
-  // Главный экран с партнером - продолжение...
+  // Главный экран с партнером
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
       {/* Шапка */}
@@ -628,7 +638,7 @@ const MainScreen: React.FC<MainScreenProps> = ({ onEnterWorkspace }) => {
                   Ваша пара
                 </p>
                 <p className="text-xs text-gray-600 dark:text-gray-400">
-                  Партнер: <span className="font-medium">{partnerInfo.nickname}</span>
+                  Партнер: <span className="font-medium">{partnerInfo?.nickname || 'Загрузка...'}</span>
                 </p>
               </div>
             </div>

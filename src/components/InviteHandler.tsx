@@ -52,7 +52,9 @@ const InviteHandler: React.FC<InviteHandlerProps> = ({ inviteCode }) => {
     }
 
     try {
-      console.log('🔍 Looking for invite with code:', code);
+      console.log('🔍 ========== PROCESSING INVITE LINK ==========');
+      console.log('🔑 Invite code:', code);
+      console.log('👤 Current user:', currentUser.uid);
       
       // Ищем приглашение
       const q = query(
@@ -96,22 +98,28 @@ const InviteHandler: React.FC<InviteHandlerProps> = ({ inviteCode }) => {
           vocabulary: [],
           currentPage: 1,
           files: [],
-          instruction: ''
+          instruction: '',
+          selectedTextbookName: null,
+          annotations: {}
         }
       });
+      console.log('✅ Pair document created');
 
       console.log('🔗 Linking users...');
 
-      // Связываем пользователей
+      // Связываем текущего пользователя (принимающего приглашение)
       await updateDoc(doc(db, 'users', currentUser.uid), {
         partnerId: inviterId,
         pairId
       });
+      console.log('✅ Current user linked');
 
+      // Связываем пригласившего пользователя
       await updateDoc(doc(db, 'users', inviterId), {
         partnerId: currentUser.uid,
         pairId
       });
+      console.log('✅ Inviter user linked');
 
       // Помечаем приглашение как использованное
       await updateDoc(doc(db, 'invites', inviteDoc.id), {
@@ -119,14 +127,17 @@ const InviteHandler: React.FC<InviteHandlerProps> = ({ inviteCode }) => {
         usedBy: currentUser.uid,
         usedAt: new Date()
       });
-
-      console.log('✅ Pair created successfully');
+      console.log('✅ Invite marked as used');
 
       // Очищаем сохраненный код
       localStorage.removeItem('pendingInviteCode');
 
-      // Обновляем профиль
+      // ✅ КРИТИЧНО: Принудительно обновляем профиль
+      console.log('🔄 Forcing profile refresh...');
       await updateUserProfile();
+      console.log('✅ Profile refreshed successfully');
+
+      console.log('🎉 ========== PAIR CREATED SUCCESSFULLY ==========');
 
       // Показываем успех
       setError('');
@@ -137,9 +148,12 @@ const InviteHandler: React.FC<InviteHandlerProps> = ({ inviteCode }) => {
         navigate('/');
       }, 1000);
 
-    } catch (err) {
-      console.error('❌ Error handling invite:', err);
-      setError('Ошибка обработки приглашения');
+    } catch (err: any) {
+      console.error('❌ ========== ERROR HANDLING INVITE ==========');
+      console.error('Error:', err);
+      console.error('Code:', err?.code);
+      console.error('Message:', err?.message);
+      setError('Ошибка обработки приглашения: ' + (err?.message || 'Неизвестная ошибка'));
       setLoading(false);
     }
   };

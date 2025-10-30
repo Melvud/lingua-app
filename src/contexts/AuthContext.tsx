@@ -43,8 +43,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const signup = async (email: string, password: string, nickname: string) => {
+    console.log('📝 ========== SIGNUP STARTED ==========');
+    console.log('📧 Email:', email);
+    console.log('👤 Nickname:', nickname);
+    
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
+    
+    console.log('✅ Firebase Auth user created:', user.uid);
     
     // Создаем профиль в Firestore
     const profile: UserProfile = {
@@ -55,75 +61,139 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     
     await setDoc(doc(db, 'users', user.uid), profile);
-    // setUserProfile(profile); // Не нужно, onSnapshot сделает это
+    console.log('✅ Firestore profile created');
+    console.log('🎉 ========== SIGNUP COMPLETED ==========');
   };
 
   const login = async (email: string, password: string) => {
+    console.log('🔐 ========== LOGIN STARTED ==========');
+    console.log('📧 Email:', email);
     await signInWithEmailAndPassword(auth, email, password);
+    console.log('✅ ========== LOGIN COMPLETED ==========');
   };
 
   const logout = async () => {
+    console.log('👋 ========== LOGOUT STARTED ==========');
     await signOut(auth);
+    console.log('✅ ========== LOGOUT COMPLETED ==========');
   };
 
-  // Оборачиваем в useCallback, чтобы ссылка на функцию не менялась
+  // ✅ Оборачиваем в useCallback для стабильной ссылки
   const updateUserProfile = useCallback(async () => {
-    if (!currentUser) return;
-    
-    console.log('🔄 Manually fetching user profile...');
-    const docRef = doc(db, 'users', currentUser.uid);
-    const docSnap = await getDoc(docRef);
-    
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      console.log('✅ Manual fetch complete:', data.partnerId);
-      setUserProfile({
-        ...data,
-        createdAt: data.createdAt?.toDate() || new Date()
-      } as UserProfile);
+    if (!currentUser) {
+      console.warn('⚠️ Cannot update profile: no current user');
+      return;
     }
-  }, [currentUser]); // Зависит только от currentUser
+    
+    console.log('🔄 ========== MANUAL PROFILE REFRESH ==========');
+    console.log('👤 User ID:', currentUser.uid);
+    
+    try {
+      const docRef = doc(db, 'users', currentUser.uid);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        console.log('✅ Profile data fetched:');
+        console.log('  - partnerId:', data.partnerId || 'none');
+        console.log('  - pairId:', data.pairId || 'none');
+        
+        setUserProfile({
+          ...data,
+          createdAt: data.createdAt?.toDate() || new Date()
+        } as UserProfile);
+        
+        console.log('✅ ========== PROFILE REFRESH COMPLETED ==========');
+      } else {
+        console.warn('⚠️ Profile document not found');
+      }
+    } catch (error: any) {
+      console.error('❌ ========== PROFILE REFRESH FAILED ==========');
+      console.error('Error:', error);
+      console.error('Code:', error?.code);
+      console.error('Message:', error?.message);
+    }
+  }, [currentUser]);
 
   useEffect(() => {
+    console.log('🔐 ========== AUTH CONTEXT INITIALIZING ==========');
+    
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      console.log('🔐 Auth state changed:', user?.uid);
+      console.log('🔐 Auth state changed:', user ? `User ${user.uid}` : 'No user');
       setCurrentUser(user);
       
       if (user) {
-        // Real-time слушатель профиля пользователя
-        // Это ЕДИНСТВЕННЫЙ слушатель, который нам нужен.
+        console.log('📡 Setting up real-time profile listener for:', user.uid);
+        
+        // ✅ Real-time слушатель профиля с error handler
         const unsubscribeProfile = onSnapshot(
-          doc(db, 'users', user.uid), 
-          { 
-            // ✅ ИСПРАВЛЕНИЕ:
-            // Гарантирует, что мы получаем данные с сервера, а не из кэша.
-            // Это заставит приложение пригласившего обновиться мгновенно.
-            includeMetadataChanges: false 
-          }, 
+          doc(db, 'users', user.uid),
+          {
+            // ✅ Всегда получаем свежие данные с сервера
+            includeMetadataChanges: false
+          },
           (doc) => {
-            console.log('🔔 Profile snapshot received (AuthContext)');
+            const source = doc.metadata.fromCache ? '📦 CACHE' : '🌐 SERVER';
+            const hasPendingWrites = doc.metadata.hasPendingWrites ? '✏️ PENDING' : '✅ SYNCED';
+            
+            console.log('🔔 ========== PROFILE SNAPSHOT RECEIVED ==========');
+            console.log(`📍 Source: ${source} | Status: ${hasPendingWrites}`);
+            
             if (doc.exists()) {
               const data = doc.data();
-              console.log(' L partnerId:', data.partnerId);
+              console.log('📊 Profile data:');
+              console.log('  - uid:', data.uid);
+              console.log('  - nickname:', data.nickname);
+              console.log('  - partnerId:', data.partnerId || 'none');
+              console.log('  - pairId:', data.pairId || 'none');
+              
               setUserProfile({
                 ...data,
                 createdAt: data.createdAt?.toDate() || new Date()
               } as UserProfile);
+              
+              console.log('✅ Profile state updated');
             } else {
+              console.warn('⚠️ Profile document does not exist');
               setUserProfile(null);
             }
+            
+            setLoading(false);
+            console.log('✅ ========== SNAPSHOT PROCESSING COMPLETED ==========');
+          },
+          (error) => {
+            // ✅ Error handler для onSnapshot
+            console.error('❌ ========== PROFILE SNAPSHOT ERROR ==========');
+            console.error('Error:', error);
+            console.error('Code:', error.code);
+            console.error('Message:', error.message);
+            
+            // Показываем пользователю понятную ошибку
+            if (error.code === 'permission-denied') {
+              console.error('🚫 Permission denied! Check Firestore rules.');
+            } else if (error.code === 'unavailable') {
+              console.error('📡 Network unavailable. Check internet connection.');
+            }
+            
             setLoading(false);
           }
         );
 
-        return () => unsubscribeProfile();
+        return () => {
+          console.log('🔌 Unsubscribing from profile listener');
+          unsubscribeProfile();
+        };
       } else {
+        console.log('👤 No user, clearing profile');
         setUserProfile(null);
         setLoading(false);
       }
     });
 
-    return unsubscribe;
+    return () => {
+      console.log('🔌 Unsubscribing from auth listener');
+      unsubscribe();
+    };
   }, []);
 
   const value = {
@@ -135,6 +205,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     logout,
     updateUserProfile
   };
+
+  console.log('🎨 Rendering AuthProvider. Loading:', loading);
 
   return (
     <AuthContext.Provider value={value}>
